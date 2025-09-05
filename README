@@ -1,0 +1,5 @@
+This contains the R script and documentation to reproduce the 16S rRNA gene sequencing analyses performed in Sadeghi et al. (2025).
+
+- Qiime2 was used to generate a feature table and taxonomy table, which were used to perform the subsequent analyses. 
+
+
