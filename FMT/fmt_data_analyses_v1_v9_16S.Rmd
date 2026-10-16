@@ -1,0 +1,1107 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-07-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r}
+library(dplyr)
+library(phyloseq)
+
+# Here I downloaded the species-level feature table fro the ‘Microbial Composition.qzv file provided by SeqCenter and QIIME2 - Note that Anshul compared this to the Microbial Composition.tsv file provided and the relative abundances calculated each way match 
+
+#Anshul also ran emu to compare the relative abundances of Bifido pseudolongum across samples and it agrees 
+#Looked at a few other species and it agrees (Although there is some disagreement with classification ie - Lepagella vs M intestinale (they are closely related at least))
+
+
+
+
+mina_p002_otu <- read.csv("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/seq_center_analyses/seq_centre_16S/level-7 (1).csv", header=TRUE)
+
+
+#if we view the counts table - we can see that samples are the first column, and each other columns indicate unique species found in the data set 
+mina_p002_otu
+
+
+#The last two columns are titled "condition" and "pooled" - we dont need these (they just repeat the sample name ) - we can remove them 
+
+mina_p002_otu_edit <- mina_p002_otu %>% 
+  dplyr::select(-condition, -pool)
+
+
+
+#For phyloseq, we need the table orientation to be flipped - taxa as rows and sample names as columns 
+#To first do this, we need to first set the first column as rownames (this removes the names of the samples)
+rownames(mina_p002_otu_edit) <- mina_p002_otu_edit$index
+mina_p002_otu_edit$index <- NULL
+
+#now if we look at our counts table, the first column name is gone 
+#now to transpose the table (flip columns and rows)
+mina_p002_otu_edit_transposed <- t(mina_p002_otu_edit)
+
+as.data.frame(mina_p002_otu_edit_transposed)
+
+#convert to a matrix format: 
+
+mina_p002_otu_edit_transposed_mat <- as.matrix(mina_p002_otu_edit_transposed)
+
+#tells us the dimension of our matrix 
+dim(mina_p002_otu_edit_transposed_mat)
+
+#Lets manually check that things were transposed properly 
+
+mina_p002_otu_edit_transposed_mat
+
+
+
+```
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+```{r}
+#Now lets create a tax-table where we have a list of our different species and their associated taxonomic designations as columns in a matrix
+
+##NOTE- Double Check the Taxonomy Created from the Qiime2 output -  some names look a bit strange ### 
+
+#we can start with our counts table (transposed)
+
+mina_p002_otu_edit_transposed_df <- as.data.frame(mina_p002_otu_edit_transposed)
+
+
+#create a column with the full taxonomy 
+mina_p002_otu_edit_transposed_df$taxonomy <- rownames(mina_p002_otu_edit_transposed_df)
+rownames(mina_p002_otu_edit_transposed_df) <- NULL
+
+#now just keep that taxonomy column 
+mina_p002_otu_edit_transposed_df <- mina_p002_otu_edit_transposed_df["taxonomy"]
+
+
+
+
+#now we can separate this into columns based on our taxonomy: 
+# Split by period that is followed by a taxonomic prefix (d__, p__, c__, o__, f__, g__, s__)
+#results in a list where each element is a vector of 7 parts.
+
+
+splits <- stringr::str_split(mina_p002_otu_edit_transposed_df$taxonomy, "\\.(?=[dcpofgs]__)")
+
+# Step 2  Convert list to dataframe directly
+#rbind() = "row bind" - stacks vectors as rows in a matrix
+#do.call() - calls rbind() with the list elements as arguments
+#Converts the list of vectors into a matrix where each row = one taxonomy string's parts
+
+
+df_split_mina_tax <- do.call(rbind, splits) %>%
+  as.data.frame() %>%
+  setNames(c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species"))
+
+
+
+ # Step 3: Add original taxonomy column back
+tax_table_final_mina <- mina_p002_otu_edit_transposed_df %>%
+  bind_cols(df_split_mina_tax)
+
+#some sanity checks here: 
+#Is order maintained correctly ?
+
+# Before splitting
+original_order <- tax_table_final_mina$taxonomy
+
+# After splitting and binding
+final_order <- mina_p002_otu_edit_transposed_df$taxonomy
+
+# Check they're identical
+identical(original_order, final_order)  # Should return TRUE
+
+
+#Now lets look at a few rows: the taxonomy column should match the subsequent rows 
+
+
+
+tax_table_final_mina
+#Now lets double check that our taxonomy split worked: Ie- every "Family" value should start with f and every "Genus" should start with "g"
+all(startsWith(tax_table_final_mina$Family, "f__")) #should be TRUE
+all(startsWith(tax_table_final_mina$Family, "g__")) #should be FALSE 
+all(startsWith(tax_table_final_mina$Genus, "g__")) #should be TRUE 
+
+
+
+
+#Almost there...
+
+# Set the taxonomy column as row names
+rownames(tax_table_final_mina) <- tax_table_final_mina$taxonomy
+
+#remove the taxonomy column 
+tax_table_final_mina$taxonomy <- NULL
+
+
+#convert to matrix 
+tax_table_final_mina <- as.matrix(tax_table_final_mina)
+dim(tax_table_final_mina)
+```
+
+
+```{r}
+#metadata 
+#Now lets import our metadata as a .csv
+
+metadata_mina_p002 <- read.csv("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/seq_center_analyses/metadata.csv")
+
+
+# Set the sample column as row names
+rownames(metadata_mina_p002) <- metadata_mina_p002$Sample
+
+class(metadata_mina_p002)
+```
+
+
+```{r}
+library("phyloseq")
+
+#lets confirm the format of our inputs
+class(mina_p002_otu_edit_transposed_mat) #should be matrix
+class(tax_table_final_mina) #should be matrix 
+class(metadata_mina_p002) #should be a data.frame
+
+#convert to format that can be imported by phyloseq
+OTU_full_MP002 = otu_table(mina_p002_otu_edit_transposed_mat, taxa_are_rows = TRUE)
+TAX_full_MP002 = tax_table(tax_table_final_mina)
+META_full_MP002 = sample_data(metadata_mina_p002)
+ps_full_MP002 = phyloseq(OTU_full_MP002,TAX_full_MP002, META_full_MP002)
+
+
+
+as.data.frame( tax_table(tax_table_final_mina))
+
+sample_sums(ps_full_MP002)
+```
+
+
+
+
+```{r}
+####FMT EXPERIMENT#####
+#What does the stock look like? 
+
+ps_FMT_experiment_stock <- subset_samples(ps_full_MP002, Group=="Stock_PBS" | Group=="Stock_BCG" )
+
+
+ps_FMT_experiment_stock_rel <- transform_sample_counts(ps_FMT_experiment_stock, function(x) x / sum(x))
+
+# 2. Melt to long-format data frame (works fine even with 1 sample)
+df_FMT_stock <- psmelt(ps_FMT_experiment_stock_rel)
+
+# 3. Order species by descending abundance and drop zero-abundance taxa
+df_FMT_stock2 <- df_FMT_stock %>%
+  filter(Abundance > 0) %>%
+  arrange(desc(Abundance)) %>%
+  mutate(Species = factor(Species, levels = unique(Species)))
+
+df_FMT_stock2 %>%
+  select(Abundance,Genus, Species)
+
+# 4. Plot stacked bar
+ggplot(df_FMT_stock2, aes(x = Sample, y = Abundance, fill = Family)) +
+  geom_bar(stat = "identity", color = "black", width = 0.5) +
+  ylab("Relative Abundance") +
+  xlab(NULL) +
+  theme_bw() +
+  theme(legend.title = element_blank())
+
+
+
+#Aggregate to family level 
+# 1. Same relative abundance transform as before
+ps_FMT_experiment_stock_rel <- transform_sample_counts(ps_FMT_experiment_stock, function(x) x / sum(x))
+
+# 2. Melt to long-format
+df_FMT_stock <- psmelt(ps_FMT_experiment_stock_rel)
+
+# 3. Identify top 10 families by total (summed) relative abundance across samples
+top10_families <- df_FMT_stock %>%
+  group_by(Family) %>%
+  summarise(TotalAbundance = sum(Abundance, na.rm = TRUE)) %>%
+  arrange(desc(TotalAbundance)) %>%
+  slice_head(n = 10) %>%
+  pull(Family)
+
+# 4. Relabel everything outside the top 10 as "Other", then collapse/sum those rows per sample
+df_FMT_stock_top10 <- df_FMT_stock %>%
+  mutate(Family = ifelse(Family %in% top10_families, as.character(Family), "Other")) %>%
+  group_by(Sample, Family) %>%
+  summarise(Abundance = sum(Abundance, na.rm = TRUE), .groups = "drop") %>%
+  mutate(Family = factor(Family, levels = c(top10_families, "Other")))
+
+
+df_FMT_stock_top10 <- df_FMT_stock_top10 %>%
+  mutate(Sample = factor(Sample, levels = c("FMT_PBS_gDNA", "FMT_BCG_gDNA")))
+# 5. Plot stacked bar
+ggplot(df_FMT_stock_top10, aes(x = Sample, y = Abundance, fill = Family)) +
+  geom_bar(stat = "identity", color = "black", width = 0.5) +
+  ylab("Relative Abundance") +
+  xlab(NULL) +
+  theme_bw() +
+  theme(legend.title = element_blank())
+```
+
+```{r}
+sample_sums(ps_full_MP002)
+ps_FMT_experiment <- subset_samples(ps_full_MP002, Experiment=="FMT")
+
+library(phyloseq)
+library(ggplot2)
+
+set.seed(1234)
+ps_rare_FMT <- rarefy_even_depth(
+  ps_FMT_experiment,
+  sample.size = min(sample_sums(ps_FMT_experiment)),
+  rngseed = 1234,
+  replace = FALSE,
+  verbose = TRUE
+)
+
+sample_sums(ps_rare_FMT)
+ord_bray_fmt <- ordinate(ps_rare_FMT, method = "PCoA", distance = "bray")
+plot_ordination(ps_rare_FMT, ord_bray_fmt, color = "Group", shape= "FMT_time_point") +
+  geom_point(size = 3) +
+  #stat_ellipse(aes(group = Group), linetype = 2) +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA of ps_FMT_experiment",
+       color = "Group")
+
+
+
+#Replot
+
+library(ggplot2)
+
+plot_ordination(
+    ps_rare_FMT,
+    ord_bray_fmt,
+    color = "Group",
+    shape = "FMT_time_point"
+) +
+    geom_point(size = 3) +
+    scale_color_manual(
+        values = c(
+            BCG_FMT   = "darkorange3",
+            PBS_FMT   = "midnightblue",
+            Stock_BCG = "red3",
+            Stock_PBS = "darkcyan"
+        )
+    ) +
+    theme_bw() +
+    theme(
+        panel.grid = element_blank()
+    ) +
+    labs(
+        title = "Bray-Curtis PCoA of ps_FMT_experiment",
+        color = "Group",
+        shape = "FMT time point"
+    )
+```
+
+
+```{r}
+#Make a barplot  between FMT and PBS at D2 and D21
+
+ps_FMT_experiment <- subset_samples(ps_full_MP002, Experiment=="FMT")
+
+ps_FMT_experiment_FMT_experi <- subset_samples(ps_FMT_experiment, Group=="PBS_FMT" | Group=="BCG_FMT")
+                                               
+
+ps_FMT_experiment_FMT_experi <- transform_sample_counts(ps_FMT_experiment_FMT_experi, function(x) x / sum(x))
+
+
+# 2. Melt to long-format data frame (works fine even with 1 sample)
+ps_FMT_experiment_FMT_experi_df <- psmelt(ps_FMT_experiment_FMT_experi)
+
+# 3. Order species by descending abundance and drop zero-abundance taxa
+
+fam_df_FMT_experi_df <- ps_FMT_experiment_FMT_experi_df %>%
+  group_by(Sample, Group, FMT_time_point, Family) %>%
+  summarise(Abundance = sum(Abundance, na.rm = TRUE), .groups = "drop")
+
+##plot the top 10 fam
+
+top10_families <- fam_df_FMT_experi_df %>%
+  group_by(Family) %>%
+  summarise(mean_abundance = mean(Abundance, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(mean_abundance)) %>%
+  slice(1:10) %>%
+  pull(Family)
+
+#
+library(tidyverse)
+fam_top_other <- fam_df_FMT_experi_df %>%
+  mutate(
+    Family_collapsed = if_else(Family %in% top10_families, as.character(Family), "Other"),
+    Family_collapsed = fct_inorder(Family_collapsed)
+  ) %>%
+  group_by(Sample, Group, FMT_time_point, Family_collapsed) %>%
+  summarise(Abundance = sum(Abundance, na.rm = TRUE), .groups = "drop")
+
+
+fam_top_other2 <- fam_top_other %>%
+  mutate(Sample = as.character(Sample))  # drop global factor levels
+
+library(ggplot2)
+
+ggplot(fam_top_other2,
+       aes(x = Sample, y = Abundance, fill = Family_collapsed)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ Group) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+
+# T1_DA23 only
+fam_T1 <- fam_top_other2 %>%
+  filter(FMT_time_point == "T1_DA23")
+
+
+fam_T1 %>% 
+  group_by(Group, Family_collapsed) %>%
+  summarise(mean_abundance = mean(Abundance))
+
+ggplot(fam_T1,
+       aes(x = Sample, y = Abundance, fill = Family_collapsed)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ Group, scales = "free_x") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+
+# T2_DA23 only
+fam_T2 <- fam_top_other2 %>%
+  filter(FMT_time_point == "T2_DM14")
+
+fam_T2 %>% 
+  group_by(Group, Family_collapsed) %>%
+  summarise(mean_abundance = mean(Abundance))
+
+ggplot(fam_T2,
+       aes(x = Sample, y = Abundance, fill = Family_collapsed)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ Group, scales = "free_x") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+```{r}
+#Bif rel ab 
+
+ps_FMT_experiment_FMT_experi <- subset_samples(ps_FMT_experiment, Group=="PBS_FMT" | Group=="BCG_FMT")
+
+ps_FMT_experiment_FMT_experi <- transform_sample_counts(ps_FMT_experiment_FMT_experi, function(x) x / sum(x))
+
+#subset taxa
+
+ps_bifido_F_experi <- subset_taxa(ps_FMT_experiment_FMT_experi, Family == "f__Bifidobacteriaceae")  # name must match your tax_table [web:218][web:223]
+
+bifido_df <- psmelt(ps_bifido_F_experi)
+
+bifido_sample <- bifido_df %>%
+  group_by(Sample, Group, FMT_time_point) %>%   # add other metadata vars if you like
+  summarise(RelAbund = sum(Abundance, na.rm = TRUE), .groups = "drop")
+
+
+
+
+# T1_DA23 only
+bif_T1 <- bifido_sample %>%
+  filter(FMT_time_point == "T1_DA23")
+
+
+ggplot(bif_T1,
+       aes(x = Group, y = RelAbund)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.1, alpha = 0.6) +
+  ylab("Relative abundance of f__Bifidobacteriaceae") +
+  theme_bw()
+
+
+
+# T2_DM14 only
+bif_T2 <- bifido_sample %>%
+  filter(FMT_time_point == "T2_DM14")
+
+library(ggplot2)
+library(ggplot2)
+
+ggplot(
+    bif_T2,
+    aes(x = Group, y = RelAbund, fill = Group)
+) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(
+        width = 0.1,
+        alpha = 0.6,
+        shape = 16,
+        color = "black"
+    ) +
+    scale_fill_manual(
+        values = c(
+            BCG_FMT = "darkorange3",
+            PBS_FMT = "midnightblue"
+        )
+    ) +
+    ylab("Bifidobacteriaceae Relative abundance") +
+    theme_bw() +
+    theme(
+        panel.grid = element_blank()
+    ) +
+    labs(fill = "Group")
+#look at species breakdown 
+
+
+bifido_species <- bifido_df %>%
+  group_by(Sample, Group, Species) %>%  # add FMT_time_point or others if useful
+  summarise(RelAbund = sum(Abundance, na.rm = TRUE), .groups = "drop")
+
+
+
+ggplot(bifido_species,
+       aes(x = Sample, y = RelAbund, fill = Species)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ Group, scales = "free_x") +
+  ylab("Relative abundance (Bifidobacteriaceae species)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+```{r}
+
+ps_FMT_experiment_FMT_experi <- subset_samples(ps_FMT_experiment, Group=="PBS_FMT" | Group=="BCG_FMT")
+sample_data(ps_FMT_experiment)
+ps_FMT_experiment_FMT_experi <- transform_sample_counts(ps_FMT_experiment_FMT_experi, function(x) x / sum(x))
+
+#subset taxa
+tax_table(ps_FMT_experiment_FMT_experi)
+ps_bifido_F_exper_sp <- subset_taxa(ps_FMT_experiment_FMT_experi, Species == "s__Bifidobacterium.pseudolongum")  # name must match your tax_table [web:218][web:223]
+
+bifido_df_sp <- psmelt(ps_bifido_F_exper_sp)
+
+bifido_sample.sp <- bifido_df_sp %>%
+  group_by(Sample, Group, FMT_time_point) %>%   # add other metadata vars if you like
+  summarise(RelAbund = sum(Abundance, na.rm = TRUE), .groups = "drop")
+
+
+
+
+# T1_DA23 only
+bif_T1.sp <- bifido_sample.sp %>%
+  filter(FMT_time_point == "T1_DA23")
+
+
+ggplot(bif_T1.sp,
+       aes(x = Group, y = RelAbund)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.1, alpha = 0.6) +
+  ylab("Relative abundance of f__Bifidobacteriaceae") +
+  theme_bw()
+
+
+
+
+# T2_DM14 only
+bif_T2.sp <- bifido_sample.sp %>%
+  filter(FMT_time_point == "T2_DM14")
+
+library(ggplot2)
+library(ggplot2)
+bif_T2.sp <- bif_T2.sp %>%
+  mutate(Group = factor(Group, levels = c("PBS_FMT", "BCG_FMT")))
+
+ggplot(
+    bif_T2.sp,
+    aes(x = Group, y = RelAbund, fill = Group)
+) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(
+    width = 0.1,
+    alpha = 0.7,
+    shape = 16,
+    color = "black",
+    size = 3
+) +
+    scale_fill_manual(
+        values = c(
+            BCG_FMT = "darkorange3",
+            PBS_FMT = "midnightblue"
+        )
+    ) +
+    ylab("Bifidobacteriaceae Relative abundance") +
+    theme_bw() +
+    theme(
+        panel.grid = element_blank()
+    ) +
+    labs(fill = "Group")
+#look at species breakdown 
+
+#Sample = PBS_3_May_14th = the high Bif sample in the control
+
+
+
+```
+
+
+
+
+```{r}
+#Make a PCoA and stats at each time point 
+#First subsetting so I just get the mouse samples 
+
+sample_data(ps_FMT_experiment)
+ps_FMT_experiment_FMT_experi_2 <- subset_samples(ps_FMT_experiment, Group=="PBS_FMT" | Group=="BCG_FMT")
+
+#Then subsetting to just get time point two 
+ps_FMT_experiment_FMT_experi_2_T2 <- subset_samples(ps_FMT_experiment_FMT_experi_2, FMT_time_point=="T2_DM14") 
+
+sample_data(ps_FMT_experiment_FMT_experi_2_T2)
+
+set.seed(1234)
+ps_FMT_experiment_FMT_experi_2_T2_rar <- rarefy_even_depth(
+  ps_FMT_experiment_FMT_experi_2_T2,
+  sample.size = min(sample_sums(ps_FMT_experiment_FMT_experi_2_T2)),
+  rngseed = 1234,
+  replace = FALSE,
+  verbose = TRUE
+)
+
+sample_sums(ps_FMT_experiment_FMT_experi_2_T2_rar)
+
+ord_bray_fmt_rar_2_T2_rar <- ordinate(ps_FMT_experiment_FMT_experi_2_T2_rar, method = "PCoA", distance = "bray")
+
+
+
+plot_ordination(ps_FMT_experiment_FMT_experi_2_T2_rar, ord_bray_fmt_rar_2_T2_rar, color = "Group") +
+  geom_point(size = 3) +
+  #stat_ellipse(aes(group = Group), linetype = 2) +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA of ps_FMT_experiment",
+       color = "Group")
+
+
+
+
+plot_ordination(ps_FMT_experiment_FMT_experi_2_T2_rar, ord_bray_fmt_rar_2_T2_rar, label = "Sample") +
+  geom_point(size = 3) +
+  #stat_ellipse(aes(group = Group), linetype = 2) +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA of ps_FMT_experiment",
+       color = "Group")
+
+plot_ordination(
+    ps_FMT_experiment_FMT_experi_2_T2_rar,
+    ord_bray_fmt_rar_2_T2_rar,
+    color = "Group"
+) +
+    geom_point(size = 3) +
+    scale_color_manual(
+        values = c(
+            BCG_FMT = "darkorange3",
+            PBS_FMT = "midnightblue"
+        )
+    ) +
+    theme_bw() +
+    theme(
+        panel.grid = element_blank()
+    ) +
+    labs(
+        title = "Bray-Curtis PCoA of ps_FMT_experiment",
+        color = "Group"
+    )
+
+
+
+
+
+# Bray–Curtis distance matrix from rarefied OTU table
+bray_dist_T2 <- phyloseq::distance(
+  ps_FMT_experiment_FMT_experi_2_T2_rar,
+  method = "bray"
+)
+
+meta_T2 <- as(sample_data(ps_FMT_experiment_FMT_experi_2_T2_rar), "data.frame")
+
+# Sample order in the distance object
+bray_samps <- attr(bray_dist_T2, "Labels")
+
+# Row names in metadata
+meta_samps <- rownames(meta_T2)
+
+bray_samps
+meta_samps
+
+all(bray_samps == meta_samps)
+
+vegan::adonis2(
+  bray_dist_T2 ~ Group,
+  data = meta_T2,
+  permutations = 999
+)
+
+ord_explore(ps_FMT_experiment_FMT_experi_2_T2)
+```
+
+```{r}
+
+#Then subsetting to just get time point two and take out the PBS high sa
+ps_FMT_experiment_FMT_experi_2_T2 <- subset_samples(ps_FMT_experiment_FMT_experi_2, FMT_time_point=="T2_DM14") 
+
+
+sample_data(ps_FMT_experiment_FMT_experi_2_T2)
+
+set.seed(1234)
+ps_FMT_experiment_FMT_experi_2_T2_rar <- rarefy_even_depth(
+  ps_FMT_experiment_FMT_experi_2_T2,
+  sample.size = min(sample_sums(ps_FMT_experiment_FMT_experi_2_T2)),
+  rngseed = 1234,
+  replace = FALSE,
+  verbose = TRUE
+)
+
+
+ps_FMT_experiment_FMT_experi_2_T2_rar_no_high_bif <- subset_samples(ps_FMT_experiment_FMT_experi_2_T2_rar, Sample != "PBS_3_May_14th")
+
+
+sample_sums(ps_FMT_experiment_FMT_experi_2_T2_rar_no_high_bif)
+
+ord_bray_fmt_rar_2_T2_rar_no_high_bif <- ordinate(ps_FMT_experiment_FMT_experi_2_T2_rar_no_high_bif, method = "PCoA", distance = "bray")
+
+
+
+plot_ordination(ps_FMT_experiment_FMT_experi_2_T2_rar_no_high_bif, ord_bray_fmt_rar_2_T2_rar_no_high_bif, color = "Group") +
+  geom_point(size = 3) +
+  #stat_ellipse(aes(group = Group), linetype = 2) +
+  theme_bw() +
+  labs(title = "Bray-Curtis PCoA of ps_FMT_experiment",
+       color = "Group")
+
+
+plot_ordination(
+    ps_FMT_experiment_FMT_experi_2_T2_rar_no_high_bif,
+    ord_bray_fmt_rar_2_T2_rar_no_high_bif,
+    color = "Group"
+) +
+    geom_point(size = 3) +
+    scale_color_manual(
+        values = c(
+            BCG_FMT = "darkorange3",
+            PBS_FMT = "midnightblue"
+        )
+    ) +
+    theme_bw() +
+    theme(
+        panel.grid = element_blank()
+    ) +
+    labs(
+        title = "Bray-Curtis PCoA of ps_FMT_experiment",
+        color = "Group"
+    )
+
+```
+
+```{r}
+
+
+#Now we can save this as the dds with the following formula 
+library(DESeq2)
+
+#prune zero sum taxa (ie - taxa not found in any sample)
+
+ps_FMT_experiment_FMT_experi_2_T2_prune <- prune_taxa(taxa_sums(ps_FMT_experiment_FMT_experi_2_T2) > 0, ps_FMT_experiment_FMT_experi_2_T2)
+
+sample_sums(ps_FMT_experiment_FMT_experi_2_T2_prune)
+sample_data(ps_FMT_experiment_FMT_experi_2_T2_prune)
+
+dds_t2 = phyloseq_to_deseq2(ps_FMT_experiment_FMT_experi_2_T2_prune, ~ Group)
+
+
+colData(dds_t2) 
+#Can add poscounts #NOTE that adding poscounts may have some minor changes on results 
+#dds <- estimateSizeFactors(dds, type = "poscounts")
+
+#design(dds)
+dds_deseq_group_t2 = DESeq(dds_t2, test="Wald") #default DESEQ2 settings
+
+levels(colData(dds_t2)$Group)
+resultsNames(dds_deseq_group_t2) #Group_PBS_FMT_vs_BCG_FMT PBS IS THE NUMERATOR!
+
+
+res_t2 = results(dds_deseq_group_t2, contrast = c("Group", "BCG_FMT", "PBS_FMT"))
+summary(res_t2) #42 up in PBS and 31 up in BCG + 2 outliers #this is using the 0.1 cutoff though and no LFC cutoff. Actual will be higher 
+
+res_t2_df <- as.data.frame(res_t2)
+
+sigtable_t2_df_1 <- res_t2_df[res_t2_df$padj < 0.05 & abs(res_t2_df$log2FoldChange) > 1,]
+sigtable_t2_df_1
+res_t2_df
+
+#now join with the tax_table for all taxa 
+
+table_joined_t2 <- cbind(as(res_t2, "data.frame"), as(phyloseq::tax_table(ps_FMT_experiment_FMT_experi_2_T2_prune)[rownames(res_t2), ], "matrix"))
+
+
+
+
+
+# Remove rows with NA padj values
+table_t2 <- table_joined_t2[!is.na(table_joined_t2$padj), ]
+
+# Ensure unique rownames (EnhancedVolcano uses rownames for matching)
+#rownames(table_t2) <- make.unique(table_t2$Species)
+
+# 1. Define colors with simplified nested ifelse
+table_t2_keyvals <- ifelse(
+  table_t2$log2FoldChange > 1 & table_t2$padj < 0.05, "#FA9442", #increased in BCG group
+  ifelse(
+    table_t2$log2FoldChange < -1 & table_t2$padj < 0.05, '#06004f', #increased in PBS
+    'lightgrey'  # everything else is grey
+  )
+)
+
+# 2. Replace NAs with grey (not black, since that's our neutral color)
+table_t2_keyvals[is.na(table_t2_keyvals)] <- 'grey'
+
+# 3. Name your vector entries to correspond to legend labels
+names(table_t2_keyvals) <- ifelse(
+  table_t2_keyvals == "#FA9442", 'Enriched in BCG-Vaccinated Donor Group',
+  ifelse(table_t2_keyvals == '#06004f', 'Enriched in PBS-control Donor Group',
+    'Not significant'  # grey points
+  )
+)
+
+
+
+#check
+sigtable_t2_df_2 <- table_t2[table_t2$padj < 0.05 & abs(table_t2$log2FoldChange) > 1,]
+
+
+sigtable_t2_df_2_BCG <- sigtable_t2_df_2[sigtable_t2_df_2$log2FoldChange > 0,]  #23 increased in BCG donor group 
+
+sigtable_t2_df_3_PBS <- sigtable_t2_df_2[sigtable_t2_df_2$log2FoldChange < 0,] #31 increased in PBS group 
+
+#Export Table 2 
+
+table_t2_export <- table_t2
+table_t2_export$direction <- ifelse(
+  table_t2_export$log2FoldChange > 1 & table_t2_export$padj < 0.05, "BCG", #increased in BCG group
+  ifelse(
+    table_t2_export$log2FoldChange < -1 & table_t2_export$padj < 0.05, 'PBS', #increased in PBS
+    'Non-significant'  # everything else is grey
+  )
+)
+table(table_t2_export$direction)
+write.csv(table_t2_export, "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/seq_center_analyses/seq_centre_16S/deseq2/deseq2.csv")
+
+#are other ones significant too? 
+table_t2_export
+
+
+```
+
+```{r}
+#check if other ones that went up also went up in the other experiment 
+
+
+#check bif 
+bif_tab <- table_t2[table_t2$Family == "f__Bifidobacteriaceae",] 
+prev_tab <- table_t2[table_t2$Family == "f__Prevotellaceae",] 
+tann_tab <- table_t2[table_t2$Family == "f__Tannerellaceae",] # One Increased in opposite direction 
+rikenell_tab <- table_t2[table_t2$Family == "f__Rikenellaceae",] #Two ASVs Increased in opposite direction 
+
+
+```
+
+```{r}
+
+unique(names(table_t2_keyvals))
+
+library(EnhancedVolcano)
+# # 5. Plot with EnhancedVolcano
+volcano_t2 <- EnhancedVolcano(
+  table_t2,
+  lab = rownames(table_t2),
+  x = 'log2FoldChange',
+  y = 'padj',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  colCustom = table_t2_keyvals,
+  legendLabels = c('Not significant', 'Enriched in BCG-Vaccinated Donor Group', 'Enriched in PBS-control Donor Group'),
+  legendPosition = 'right',
+  legendLabSize = 8,
+  legendIconSize = 2,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 1.5,
+  labSize = 2,      # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = ''
+)
+
+volcano_t2
+unique(data.frame(
+    color = unname(table_t2_keyvals),
+    label = names(table_t2_keyvals)
+))
+```
+
+```{r}
+EnhancedVolcano(
+  table_t2,
+  lab = table_t2$Species,
+  x = 'log2FoldChange',
+  y = 'padj',
+#  pCutoff = 0.05,
+  FCcutoff = 1, 
+  labSize = 0,
+  legendLabSize = 8,
+  legendIconSize = 2,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 1.5,     # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = '')
+```
+
+```{r}
+#Do the same thing but now remove the high Bif sample 
+#prune zero sum taxa (ie - taxa not found in any sample)
+
+ps_FMT_experiment_FMT_experi_2_T2_prune <- prune_taxa(taxa_sums(ps_FMT_experiment_FMT_experi_2_T2) > 0, ps_FMT_experiment_FMT_experi_2_T2)
+
+sample_data(ps_FMT_experiment_FMT_experi_2_T2_prune)
+
+ps_FMT_experiment_FMT_experi_2_T2_prune_no_high_bif <- subset_samples(ps_FMT_experiment_FMT_experi_2_T2_prune, Sample != "PBS_3_May_14th")
+
+sample_data(ps_FMT_experiment_FMT_experi_2_T2_prune_no_high_bif)
+
+dds_t2_no_high_bif = phyloseq_to_deseq2(ps_FMT_experiment_FMT_experi_2_T2_prune_no_high_bif, ~ Group)
+
+
+colData(dds_t2_no_high_bif) 
+#Can add poscounts #NOTE that adding poscounts may have some minor changes on results 
+#dds <- estimateSizeFactors(dds, type = "poscounts")
+
+#design(dds)
+dds_deseq_group_t2_no_high_bif = DESeq(dds_t2_no_high_bif, test="Wald") #default DESEQ2 settings
+
+levels(colData(dds_deseq_group_t2_no_high_bif)$Group)
+
+
+res_t2_no_high_bif = results(dds_deseq_group_t2_no_high_bif, contrast = c("Group", "BCG_FMT", "PBS_FMT"))
+summary(res_t2_no_high_bif) 
+
+#OG: 42 up in PBS and 31 up in BCG + 2 outliers #this is using the 0.1 cutoff though and no LFC cutoff. Actual will be higher 
+
+#NOW: 33 up in PBS and 26 up in BCG
+
+
+
+res_t2_df_no_high_bif <- as.data.frame(res_t2_no_high_bif)
+
+sigtable_t2_df_no_high_bif <- res_t2_df_no_high_bif[res_t2_df_no_high_bif$padj < 0.05 & abs(res_t2_df_no_high_bif$log2FoldChange) > 1,]
+
+
+#now join with the tax_table for all taxa 
+
+table_joined_t2_no_high_bif <- cbind(as(res_t2_df_no_high_bif, "data.frame"), as(phyloseq::tax_table(ps_FMT_experiment_FMT_experi_2_T2_prune_no_high_bif)[rownames(res_t2_df_no_high_bif), ], "matrix"))
+
+
+
+# Remove rows with NA padj values
+table_t2_no_high_bif <- table_joined_t2_no_high_bif[!is.na(table_joined_t2_no_high_bif$padj), ]
+
+
+#check
+sigtable_t2_df_1_no_high_bif <- table_t2_no_high_bif[table_t2_no_high_bif$padj < 0.05 & abs(table_t2_no_high_bif$log2FoldChange) > 1,]
+
+
+sigtable_t2_df_2_BCG_no_high_bif <- sigtable_t2_df_1_no_high_bif[sigtable_t2_df_1_no_high_bif$log2FoldChange > 0,] 
+# OG 23 increased in BCG donor group 
+# Now 21 increased in BCG donor group 
+
+
+
+
+sigtable_t2_df_3_PBS_no_high_bif <- sigtable_t2_df_1_no_high_bif[sigtable_t2_df_1_no_high_bif$log2FoldChange < 0,] 
+#OG 30 increased in PBS group 
+#Now 30 increased in PBS group 
+
+#sorted
+
+sigtable_t2_df_2_BCG_no_high_bif_sorted <- sigtable_t2_df_2_BCG_no_high_bif[
+  order(sigtable_t2_df_2_BCG_no_high_bif$padj, na.last = TRUE),
+]
+
+#COMPARE OG WITH NEW TABLE 
+#HOW MANY SPECIES 
+
+
+#BCG Upregulated Comparison 
+
+sigtable_t2_df_2_BCG
+sigtable_t2_df_2_BCG_no_high_bif
+species_run1_BCG <- unique(rownames(sigtable_t2_df_2_BCG))
+species_run2_BCG_no_high_bif <- unique(rownames(sigtable_t2_df_2_BCG_no_high_bif))
+
+
+# Significant and upregulated in both runs
+shared_species_BCG <- intersect(species_run1_BCG, species_run2_BCG_no_high_bif)
+length(unique(shared_species_BCG)) #19 
+
+# Significant only in run 1
+unique_run1_BCG <- setdiff(species_run1_BCG, species_run2_BCG_no_high_bif) #4 only in run1 but not run2
+
+# Significant only in run 2
+unique_run2_BCG_no_high_bif <- setdiff(species_run2_BCG_no_high_bif, species_run1_BCG) #2 only in run 2
+
+
+#PBS Upregulated Comparison 
+
+sigtable_t2_df_3_PBS
+sigtable_t2_df_3_PBS_no_high_bif
+
+
+species_run1_PBS <- unique(rownames(sigtable_t2_df_3_PBS))
+species_run2_PBS_no_high_bif <- unique(rownames(sigtable_t2_df_3_PBS_no_high_bif))
+
+
+
+# Significant and upregulated in both runs
+shared_species_PBS <- intersect(species_run1_PBS, species_run2_PBS_no_high_bif)
+length(unique(shared_species_PBS)) #29
+
+
+
+# Significant only in run 1
+unique_run1_PBS <- setdiff(species_run1_PBS, species_run2_PBS_no_high_bif) #1 only in run1 but not run2
+
+# Significant only in run 2
+unique_run2_PBS_no_high_bif <- setdiff(species_run2_PBS_no_high_bif, species_run1_PBS) #1 only in run 2 not run 1
+
+
+```
+
+```{r}
+
+#VOLCANO PLOT - RUN 2 - REMOVE HIGH PBS 
+
+
+# 1. Define colors with simplified nested ifelse
+table_t2_keyvals_no_high_bif <- ifelse(
+  table_t2_no_high_bif$log2FoldChange > 1 & table_t2_no_high_bif$padj < 0.05, "#FA9442", #increased in BCG group
+  ifelse(
+    table_t2_no_high_bif$log2FoldChange < -1 & table_t2_no_high_bif$padj < 0.05, '#06004f', #increased in PBS
+    'lightgrey'  # everything else is grey
+  )
+)
+
+# 2. Replace NAs with grey (not black, since that's our neutral color)
+table_t2_keyvals_no_high_bif[is.na(table_t2_keyvals_no_high_bif)] <- 'grey'
+
+# 3. Name your vector entries to correspond to legend labels
+names(table_t2_keyvals_no_high_bif) <- ifelse(
+  table_t2_keyvals_no_high_bif == "#FA9442", 'Enriched in BCG-Vaccinated Donor Group',
+  ifelse(table_t2_keyvals_no_high_bif == '#06004f', 'Enriched in PBS-control Donor Group',
+    'Not significant'  # grey points
+  )
+)
+
+
+
+
+
+library(EnhancedVolcano)
+# # 5. Plot with EnhancedVolcano
+volcano_t2_no_high_bif <- EnhancedVolcano(
+  table_t2_no_high_bif,
+  lab = rownames(table_t2_no_high_bif),
+  x = 'log2FoldChange',
+  y = 'padj',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  colCustom = table_t2_keyvals_no_high_bif,
+  legendLabels = c('Not significant', 'Enriched in BCG-Vaccinated Donor Group', 'Enriched in PBS-control Donor Group'),
+  legendPosition = 'right',
+  legendLabSize = 12,
+  legendIconSize = 4,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 4,
+  labSize = 0,      # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = ''
+)
+
+volcano_t2_no_high_bif
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/removed_sample_PBS_deseq.png",
+  plot = volcano_t2_no_high_bif,
+  width = 8.5,
+  height = 6.5,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+```
+
+```{r}
+volcano_t2_no_high_bif_label <- EnhancedVolcano(
+  table_t2_no_high_bif,
+  lab = table_t2_no_high_bif$Species,
+  x = 'log2FoldChange',
+  y = 'padj',
+   #  selectLab = c('s__Bifidobacterium.pseudolongum'),
+ pCutoff = 0.05,
+  FCcutoff = 1, 
+  labSize = 2,
+  legendLabSize = 8,
+  legendIconSize = 2,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 3,     # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = '')
+
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/removed_sample_PBS_deseq_labelled.png",
+  plot = volcano_t2_no_high_bif_label,
+  width = 8.5,
+  height = 6.5,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+```
+
