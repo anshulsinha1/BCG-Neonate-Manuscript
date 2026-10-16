@@ -1,6 +1,12 @@
 This contains the R script and documentation to reproduce the 16S rRNA gene sequencing analyses performed in Sadeghi et al. (2026).
 
+
+- The folder "BCG_vaccination" contains the feature table, taxonomy table, and code used to analyze V4 16S rRNA sequencing data, comparing adult and neonate mice recieving BCG-sc, BCG-iv or PBS control. 
 - Qiime2 was used to generate a feature table and taxonomy table, which were used to perform the subsequent analyses. 
+
+- The folder "FMT_experiment" contains the feature table, containing full-length 16S rRNA sequencing data, comparing the innoculum and mice recieving BCG-FMT or PBS-FMT
+- Qiime2 was used to generate a feature table and taxonomy table, which were used to perform the subsequent analyses. 
+
 
 
 
