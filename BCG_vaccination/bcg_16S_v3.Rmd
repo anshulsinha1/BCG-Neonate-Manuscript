@@ -1,0 +1,4178 @@
+---
+title: "P005_mina_06_2025"
+output: html_document
+date: "2025-07-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+```
+
+```{r}
+library(devtools)
+#library(DECIPHER)
+library(data.table)
+library(vegan)
+library(pairwiseAdonis)
+library(phyloseq)
+#library(phangorn)
+library(dplyr)
+library(tidyverse)
+library(qiime2R)
+```
+```{r}
+
+```
+
+```{r}
+# same as v1, but I wont include any of the unifrac code bc I didnt build a tree
+#Importing from qiime2
+#Update Jan 2026 - I noticed that the Pairwise adonis code I initially used is not correct - It takes a distance matrix not a matrix 
+
+
+
+physeq <- qza_to_phyloseq(
+    features="/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/16S/merged/tablemerged.qza",
+    taxonomy="/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/16S/merged/taxonomy.qza")
+#metadata = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/16S/merged/Mapping.txt")
+physeq_MS <- physeq
+sample_names(physeq_MS)
+
+taxa_are_rows(physeq_MS)
+#613 taxa vs 557 with v1
+```
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+#also import metadata separately 
+
+
+metadata <- read.table("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/16S/merged/Mapping.txt", sep = "\t", header = TRUE)
+
+rownames(metadata) <-  metadata$Sample.ID# Set the first column as rownames
+metadata
+
+setdiff(sample_names(physeq_MS), rownames(metadata))
+setdiff(rownames(metadata), sample_names(physeq_MS))
+
+# add some more detail to the metadata 
+
+metadata <- metadata %>%
+  mutate(
+    Age = str_trim(str_extract(Sample, "^[^-]+")),
+    Treatment = str_trim(str_extract(Sample, "[^-]+$"))
+  )
+
+metadata$Sample <- NULL       # remove the column named Sample
+
+#remove the "Sample" column 
+
+sample_data(physeq_MS) <- sample_data(metadata)
+
+
+
+```
+
+```{r}
+#sanity check that the metadata lines up
+as(sample_data(physeq_MS), "data.frame")
+
+#confirm that this lines up with the file Bava sent me: 
+```
+```{r}
+#sanity
+library(DESeq2)
+
+#Doing this for each experiment separately 
+#Experiment. B
+experiment_B <- subset_samples(physeq_MS, Experiment == "B")
+
+ 
+#Running DESEQ2 at the family level #NOT USING rarefied PS object 
+
+
+
+ps_family_B <- tax_glom(experiment_B, taxrank = "Family", NArm = TRUE)
+
+ps_family_B_prune <- prune_taxa(taxa_sums(ps_family_B) > 0, ps_family_B)
+ps_family_B_prune_1_2_3 <- subset_samples(ps_family_B_prune, Group == "GP1" | Group == "GP2" |Group == "GP3" )
+
+#Here, Im going to subset for just GP1, 2, 3. Will give more power since Im losing some sampels by doing experiment-specific 
+
+
+#phyloseq_to_deseq2 basically gets us to the following line of code: so saves us the hassle of formatting, etc. 
+# DESeqDataSetFromMatrix(countData=raw_counts_lb_matrix, colData=sample_mapping_lb, design = ~ mouseID_n + Condition1)
+
+
+
+#Now we can save this as the dds with the following formula 
+
+dds_B = phyloseq_to_deseq2(ps_family_B_prune_1_2_3, ~ Group)
+
+colData(dds_B) 
+#Can add poscounts #Note this will have some minor effects on the data 
+#dds <- estimateSizeFactors(dds, type = "poscounts")
+
+design(dds_B)
+dds_deseq_group_fam_B = DESeq(dds_B, test="Wald") #default DESEQ2 settings
+
+
+testrestB_31 = results(dds_deseq_group_fam_B, contrast = c("Group", "GP3", "GP1"))
+testrestB_32 = results(dds_deseq_group_fam_B, contrast = c("Group", "GP3", "GP2"))
+alpha = 0.05
+testrestB_31[which(testrestB_31$padj < alpha), ]
+testrestB_32[which(testrestB_32$padj < alpha), ]
+
+
+
+```
+
+
+
+
+
+```{r}
+
+experiment_A <- subset_samples(physeq_MS, Experiment == "A")
+ps_family_A <- tax_glom(experiment_A, taxrank = "Family", NArm = TRUE)
+
+ps_family_A_prune <- prune_taxa(taxa_sums(ps_family_A) > 0, ps_family_A)
+ps_family_A_prune_1_2_3 <- subset_samples(ps_family_A_prune, Group == "GP1" | Group == "GP2" |Group == "GP3" )
+ps_family_A_prune_1_2_3 <- prune_taxa(taxa_sums(ps_family_A_prune_1_2_3) > 0, ps_family_A_prune_1_2_3)
+
+#Here, Im going to subset for just GP1, 2, 3. Will give more power since Im losing some sampels by doing experiment-specific 
+
+
+#phyloseq_to_deseq2 basically gets us to the following line of code: so saves us the hassle of formatting, etc. 
+# DESeqDataSetFromMatrix(countData=raw_counts_lb_matrix, colData=sample_mapping_lb, design = ~ mouseID_n + Condition1)
+
+
+
+#Now we can save this as the dds with the following formula 
+
+dds_A = phyloseq_to_deseq2(ps_family_A_prune_1_2_3, ~ Group)
+sample_data(ps_family_A_prune_1_2_3)
+
+colData(dds_A) 
+#Can add poscounts #Note this will have some minor effects on the data 
+#dds <- estimateSizeFactors(dds, type = "poscounts")
+
+design(dds_A)
+dds_deseq_group_fam_A = DESeq(dds_A, test="Wald") #default DESEQ2 settings
+
+
+testrestA_31 = results(dds_deseq_group_fam_A, contrast = c("Group", "GP3", "GP1"))
+testrestA_32 = results(dds_deseq_group_fam_A, contrast = c("Group", "GP3", "GP2"))
+
+
+testrestA_31[which(testrestA_31$padj < alpha), ]
+testrestA_32[which(testrestA_32$padj < alpha), ]
+
+sample_data(ps_family_B_prune_1_2_3)
+sample_data(ps_family_A_prune_1_2_3)
+
+```
+
+
+```{r}
+
+# Split samples by experiment
+ps_A <- subset_samples(physeq_MS, Experiment == "A")
+ps_B <- subset_samples(physeq_MS, Experiment == "B")
+
+# Identify ASVs present in each experiment
+asvs_A <- taxa_names(prune_taxa(taxa_sums(ps_A) > 0, ps_A))
+asvs_B <- taxa_names(prune_taxa(taxa_sums(ps_B) > 0, ps_B))
+
+# Find shared ASVs
+shared_asvs <- intersect(asvs_A, asvs_B)
+
+length(asvs_A)
+length(asvs_B)
+length(shared_asvs) #206 ASVs found in both A and B  - compared to 203 with earlier versions 
+
+
+
+# ASVs unique to A
+unique_A <- setdiff(asvs_A, asvs_B)
+
+# ASVs unique to B
+unique_B <- setdiff(asvs_B, asvs_A)
+
+# Counts
+length(unique_A)
+length(unique_B)
+
+
+
+```
+
+```{r}
+#BUILDING A TREE# Using the following steps:https://www.bioconductor.org/help/course-materials/2017/BioC2017/Day1/Workshops/Microbiome/MicrobiomeWorkflowII.html#construct_phylogenetic_tree
+
+#Since our sequences are rownames (e.g. DADA2 ASVs) - we can extract them using the following 
+
+#library(Biostrings)
+#seqs <- DNAStringSet(taxa_names(physeq_MS))
+#names(seqs) <- taxa_names(physeq_MS)
+
+
+
+
+
+```
+
+
+
+```{r}
+# We begin by performing a multiple-alignment using the DECIPHER R package (Wright 2015).
+
+
+
+#COMMENTING OUT MOST OF THIS BECAUSE IT TAKES ~1.5 HOURS TO RUN: WILL EXPORT TREE AS NEWICK FILE AND THEN CAN READ IN EVERYTIME I RUN 
+
+
+
+#alignment <- AlignSeqs(DNAStringSet(seqs), anchor=NA,verbose=FALSE)
+#The phangorn R package is then used to construct a phylogenetic tree. Here we first construct a neighbor-joining tree, and then fit a GTR+G+I (Generalized time-reversible with Gamma rate variation) maximum likelihood tree using the neighbor-joining tree as a starting point.
+
+
+#phangAlign <- phyDat(as(alignment, "matrix"), type="DNA")
+#dm <- dist.ml(phangAlign)
+#treeNJ <- NJ(dm) # Note, tip order != sequence order
+#fit = pml(treeNJ, data=phangAlign)
+#fitGTR <- update(fit, k=4, inv=0.2)
+#fitGTR <- optim.pml(fitGTR, model="GTR", optInv=TRUE, optGamma=TRUE,
+   #     rearrangement = "stochastic", control = pml.control(trace = 0))
+#detach("package:phangorn", unload=TRUE)
+
+library(ape)
+
+# Save the tree object to a .nwk (Newick) file
+#write.tree(fitGTR$tree, file = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/optimized_tree.nwk")
+
+
+```
+
+```{r}
+#read in tree 
+ # reload after update
+#tree <- read_tree("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/v1_data/optimized_tree.nwk")
+
+
+#tree is not rooted so have to do that # Based on forum here: https://github.com/joey711/phyloseq/issues/597 rooting by longest terminal branch
+
+#pick_new_outgroup <- function(tree.unrooted){
+   # require("magrittr")
+   # require("data.table")
+    #require("ape") # ape::Ntip
+  #   tablify parts of tree that we need.
+   # treeDT <- 
+     # cbind(
+     #   data.table(tree.unrooted$edge),
+      #  data.table(length = tree.unrooted$edge.length)
+    ##  )[1:Ntip(tree.unrooted)] %>% 
+     # cbind(data.table(id = tree.unrooted$tip.label))
+    # Take the longest terminal branch as outgroup
+    #new.outgroup <- treeDT[which.max(length)]$id
+   # return(new.outgroup)
+  #}
+
+#new.outgroup = pick_new_outgroup(tree)
+#rootedTree = ape::root(tree, outgroup=new.outgroup, resolve.root=TRUE)
+
+#ape::is.rooted(rootedTree)
+
+
+#Add back to PS object 
+#physeq_MS <- merge_phyloseq(physeq_MS, phy_tree(rootedTree))
+#sample_data(physeq_MS)
+
+
+
+
+
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+sequencing_depth <- sample_sums(physeq_MS)
+
+sequencing_depth_df <- as.data.frame(sequencing_depth)
+
+# ordering the dataframe 
+sequencing_depth_ordered  <- sequencing_depth_df[order(sequencing_depth_df$sequencing_depth), ,drop = FALSE ]
+
+
+# Step 1: Move rownames to a column
+sequencing_depth_ordered <- sequencing_depth_ordered %>% tibble::rownames_to_column("Sample.ID")
+
+
+#join by metadata to get more info 
+
+sequencing_depth_ordered_joined <- left_join(sequencing_depth_ordered, metadata, by="Sample.ID")
+
+#in general experiment A has much higher depth than B - same as before
+
+
+
+```
+
+
+
+
+```{r}
+
+family_ps <- tax_glom(physeq_MS, taxrank = "Family")
+
+matrix_phyloseq_family <- as(t(otu_table(family_ps)), "matrix")
+rarecurve(matrix_phyloseq_family, step = 250, label = FALSE)
+
+
+matrix_phyloseq <- as(t(otu_table(physeq_MS)), "matrix")
+
+
+## Calculate row sums (sequencing depth of each sample)
+
+row_sums <- rowSums(matrix_phyloseq)
+
+
+
+
+#step = 250  means that the function calculates  richness every 250 sequences until the total number of species for that sample is reached
+
+
+rarecurve(matrix_phyloseq, step = 250, label = FALSE, xlim = c(0,10000))
+
+
+
+
+```
+
+```{r}
+#create curve that has coloured lines based on Experimetn 
+library(phyloseq)
+library(vegan)
+
+# 1. Extract OTU table (samples in rows)
+otu_mat <- as(otu_table(physeq_MS), "matrix")
+if (taxa_are_rows(physeq_MS)) {
+  otu_mat <- t(otu_mat)
+}
+
+# 2. Extract grouping variable from sample_data
+group_var <- sample_data(physeq_MS)$Experiment  # replace 'Diagnosis' with your variable
+group_var <- factor(group_var)
+
+# 3. Set colors based on groups
+palette <- rainbow(length(levels(group_var)))
+group_colors <- palette[group_var]
+
+# 4. Plot rarefaction curves with colors
+rarecurve(otu_mat, step = 250, label = FALSE, xlim = c(0, 10000), col = group_colors)
+
+# 5. Add legend
+legend("bottomright", legend = levels(group_var), col = palette, lty = 1, cex = 0.8)
+
+#looks similar to v1, saturates at 4000
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+library(vegan)
+#First analyze the experiments together and rarefy to lowest depth 
+set.seed(seed = 1)
+rarefied_phyloseq <- rarefy_even_depth(physeq_MS, sample.size=4229,rngseed=1)
+tax_table(rarefied_phyloseq)#28 ASVs removed after rarefying - all samples remain 
+```
+
+
+```{r}
+#ALL SAMPLES #BRAY AND WEIGHTED UNIFRAC 
+
+
+ordination_pcoa_bray <- ordinate(rarefied_phyloseq, "PCoA", "bray")
+
+
+#now we can plot this
+
+plot_ordination(rarefied_phyloseq, ordination_pcoa_bray)
+
+# Basic ordination plot
+p_experiment <- plot_ordination(rarefied_phyloseq, ordination_pcoa_bray,
+                     color = "Experiment", label = TRUE)
+
+p_treatment <- plot_ordination(rarefied_phyloseq, ordination_pcoa_bray,
+                     color = "Treatment", label = TRUE)
+
+p_group <- plot_ordination(rarefied_phyloseq, ordination_pcoa_bray,
+                     color = "Group", label = TRUE)
+
+p_age <- plot_ordination(rarefied_phyloseq, ordination_pcoa_bray,
+                     color = "Age", label = TRUE)
+
+
+# Add 95% confidence ellipses
+p_experiment +
+  geom_point(size = 3) +
+  stat_ellipse(geom = "polygon", type = "t", level = 0.95, alpha = 0.2, aes(fill = Experiment)) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(),
+    axis.ticks = element_line()
+  )
+
+
+p_age + 
+ geom_point(size = 3) +
+  stat_ellipse(geom = "polygon", type = "t", level = 0.95, alpha = 0.2, aes(fill = Age)) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(),
+    axis.ticks = element_line()
+  )
+
+p_treatment  +
+  geom_point(size = 3) +
+  stat_ellipse(geom = "polygon", type = "t", level = 0.95, alpha = 0.2, aes(fill = Treatment)) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(),
+    axis.ticks = element_line()
+  )
+
+
+
+```
+
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+
+### Creates ordinations where you can customize distance method, what metadata variable I want to test and gives a custom pallette depending on what variable I choose
+
+plot_pcoa_ellipses <- function(ps_obj, distance_method = "bray", color_var = "Treatment") {
+  # Define manual palettes
+  palette_list <- list(
+    Treatment  = c("grey", "#008080", "#A29FDD"),                             # 3 colors
+    Age        = c("#1B9E77", "#D95F02"),                                     # 2 colors
+    Experiment = c("#7570B3", "#E7298A"),                                     # 2 colors
+    Group      = c("grey", "#008080", "#A29FDD", "#E78AC3", "#A6D854", "#FFD92F") # 6 colors
+  )
+
+  # Extract metadata
+  meta <- as.data.frame(sample_data(ps_obj))
+
+  # Rename Treatment labels if needed
+  if (color_var == "Treatment") {
+    meta[[color_var]] <- factor(meta[[color_var]],
+      levels = c("Control", "IV", "SC"),
+      labels = c("BCG-Control", "BCG-IV", "BCG-SC")
+    )
+    sample_data(ps_obj) <- meta  # Update phyloseq object
+  }
+
+  # Determine how many unique levels the variable has
+  n_levels <- length(unique(meta[[color_var]]))
+
+  # Use predefined palette or create one dynamically
+  if (color_var %in% names(palette_list) && length(palette_list[[color_var]]) >= n_levels) {
+    pal <- palette_list[[color_var]][1:n_levels]
+  } else {
+    pal <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(n_levels)
+  }
+
+  color_scale <- scale_color_manual(values = pal)
+  fill_scale  <- scale_fill_manual(values = pal)
+
+  # Compute distance & ordination
+  dist <- phyloseq::distance(ps_obj, method = distance_method)
+  ord  <- ordinate(ps_obj, method = "PCoA", distance = distance_method)
+
+  # Plot
+  p <- plot_ordination(ps_obj, ord, color = color_var, label = TRUE) +
+    geom_point(size = 3) +
+    stat_ellipse(
+      geom = "polygon",
+      type = "t",
+      level = 0.95,
+      alpha = 0.2,
+      aes_string(fill = color_var)
+    ) +
+    color_scale +
+    fill_scale +
+    theme_minimal() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.line = element_line(),
+      axis.ticks = element_line(),
+      axis.title = element_text(size = 14),   # Axis title size
+      axis.text  = element_text(size = 12),   # Axis tick size
+      legend.title = element_text(size = 13), # Legend title size
+      legend.text  = element_text(size = 11)  # Legend label size
+    )
+
+  return(p)
+}
+
+
+
+plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "bray", color_var = "Experiment")
+plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "bray", color_var = "Age")
+plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "bray", color_var = "Treatment")
+plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "bray", color_var = "Group")
+
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "wunifrac", color_var = "Experiment")
+#plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "wunifrac", color_var = "Age")
+#plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "wunifrac", color_var = "Treatment")
+#plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "wunifrac", color_var = "Group")
+
+
+
+# Ordination
+ord_MS <- ordinate(rarefied_phyloseq, method = "PCoA", distance = "bray")
+# PCoA with larger points and no gridlines
+p_pcoa <- plot_ordination(rarefied_phyloseq, ord_MS, type = "samples",
+                          color = "Experiment", shape = "Age") +
+  geom_point(size = 4, alpha = 0.9) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+p_pcoa
+
+# Ellipses plot: larger points and no gridlines
+plot_pcoa_ellipses(
+  rarefied_phyloseq,
+  distance_method = "bray",
+  color_var = "Experiment"
+) +
+  geom_point(size = 4, alpha = 0.9) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "bray", color_var = "Experiment")
+
+```
+
+```{r}
+#Same function but changing colour of treatment (for adults)
+plot_pcoa_ellipses2 <- function(ps_obj, distance_method = "bray", color_var = "Treatment") {
+  # Define manual palettes
+  palette_list <- list(
+    Treatment  = c("#2f5e78", "#e5954d", "#b65759"),                             # 3 colors
+    Age        = c("#1B9E77", "#D95F02"),                                     # 2 colors
+    Experiment = c("#7570B3", "#E7298A"),                                     # 2 colors
+    Group      = c("grey", "#008080", "#A29FDD", "#E78AC3", "#A6D854", "#FFD92F") # 6 colors
+  )
+
+  # Extract metadata
+  meta <- as.data.frame(sample_data(ps_obj))
+
+  # Rename Treatment labels if needed
+  if (color_var == "Treatment") {
+    meta[[color_var]] <- factor(meta[[color_var]],
+      levels = c("Control", "IV", "SC"),
+      labels = c("BCG-Control", "BCG-IV", "BCG-SC")
+    )
+    sample_data(ps_obj) <- meta  # Update phyloseq object
+  }
+
+  # Determine how many unique levels the variable has
+  n_levels <- length(unique(meta[[color_var]]))
+
+  # Use predefined palette or create one dynamically
+  if (color_var %in% names(palette_list) && length(palette_list[[color_var]]) >= n_levels) {
+    pal <- palette_list[[color_var]][1:n_levels]
+  } else {
+    pal <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(n_levels)
+  }
+
+  color_scale <- scale_color_manual(values = pal)
+  fill_scale  <- scale_fill_manual(values = pal)
+
+  # Compute distance & ordination
+  dist <- phyloseq::distance(ps_obj, method = distance_method)
+  ord  <- ordinate(ps_obj, method = "PCoA", distance = distance_method)
+
+  # Plot
+  p <- plot_ordination(ps_obj, ord, color = color_var, label = TRUE) +
+    geom_point(size = 3) +
+    stat_ellipse(
+      geom = "polygon",
+      type = "t",
+      level = 0.95,
+      alpha = 0.2,
+      aes_string(fill = color_var)
+    ) +
+    color_scale +
+    fill_scale +
+    theme_minimal() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.line = element_line(),
+      axis.ticks = element_line(),
+      axis.title = element_text(size = 14),   # Axis title size
+      axis.text  = element_text(size = 12),   # Axis tick size
+      legend.title = element_text(size = 13), # Legend title size
+      legend.text  = element_text(size = 11)  # Legend label size
+    )
+
+  return(p)
+}
+
+
+```
+
+
+
+```{r}
+# a 3rd function to change "Pups" to "Neonates" and to pluralize Adult to Adults
+plot_pcoa_ellipses3 <- function(ps_obj, distance_method = "bray", color_var = "Treatment") {
+  # Define manual palettes
+  palette_list <- list(
+    Treatment  = c("grey", "#008080", "#A29FDD"),                             # 3 colors
+    Age        = c("#1B9E77", "#D95F02"),                                     # 2 colors
+    Experiment = c("#7570B3", "#E7298A"),                                     # 2 colors
+    Group      = c("grey", "#008080", "#A29FDD", "#E78AC3", "#A6D854", "#FFD92F") # 6 colors
+  )
+
+  # Extract metadata
+  meta <- as.data.frame(sample_data(ps_obj))
+
+  # ✅ Rename Treatment labels if needed
+  if (color_var == "Treatment") {
+    meta[[color_var]] <- factor(meta[[color_var]],
+      levels = c("Control", "IV", "SC"),
+      labels = c("BCG-Control", "BCG-IV", "BCG-SC")
+    )
+    sample_data(ps_obj) <- meta  # Update phyloseq object
+  }
+
+  # ✅ Rename Age labels if needed
+  if (color_var == "Age") {
+    meta[[color_var]] <- dplyr::recode(meta[[color_var]],
+      "Pups"  = "Neonates",
+      "Adult" = "Adults"
+    )
+    sample_data(ps_obj) <- meta  # Update phyloseq object
+  }
+
+  # Determine how many unique levels the variable has
+  n_levels <- length(unique(meta[[color_var]]))
+
+  # Use predefined palette or create one dynamically
+  if (color_var %in% names(palette_list) && length(palette_list[[color_var]]) >= n_levels) {
+    pal <- palette_list[[color_var]][1:n_levels]
+  } else {
+    pal <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(n_levels)
+  }
+
+  color_scale <- scale_color_manual(values = pal)
+  fill_scale  <- scale_fill_manual(values = pal)
+
+  # Compute distance & ordination
+  dist <- phyloseq::distance(ps_obj, method = distance_method)
+  ord  <- ordinate(ps_obj, method = "PCoA", distance = distance_method)
+
+  # Plot
+  p <- plot_ordination(ps_obj, ord, color = color_var, label = TRUE) +
+    geom_point(size = 3) +
+    stat_ellipse(
+      geom = "polygon",
+      type = "t",
+      level = 0.95,
+      alpha = 0.2,
+      aes_string(fill = color_var)
+    ) +
+    color_scale +
+    fill_scale +
+    theme_minimal() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.line = element_line(),
+      axis.ticks = element_line(),
+      axis.title = element_text(size = 14),   # Axis title size
+      axis.text  = element_text(size = 12),   # Axis tick size
+      legend.title = element_text(size = 13), # Legend title size
+      legend.text  = element_text(size = 11)  # Legend label size
+    )
+
+  return(p)
+}
+
+```
+
+
+
+
+```{r}
+#What is the effect of Experiment on composition (univariate)
+#I'll change my code slighlty 
+bray_distance <- phyloseq::distance(rarefied_phyloseq, method = "bray")
+
+sample_sums(rarefied_phyloseq)
+
+metadata_all <-  as(sample_data(rarefied_phyloseq), "data.frame")
+metadata_all <- metadata_all %>%
+  mutate(
+    Age        = factor(Age),
+    Experiment = factor(Experiment),
+    Group      = factor(Group)
+  )
+
+
+labels_bray <- attr(bray_distance, "Labels")
+
+all(rownames(metadata_all) == labels_bray)
+
+#wunifrac_distance <- phyloseq::distance(rarefied_phyloseq, method = "wunifrac")
+```
+
+
+
+```{r}
+#BRAY_CURTIS PERMANOVAS
+
+class(bray_distance)
+class(metadata_all)
+
+set.seed(1)
+adonis2(bray_distance ~ Experiment, data = metadata_all, permutations = 999) #p=0.001, R2 = 0.1511 (similar to v1)
+
+set.seed(1)
+
+adonis2(bray_distance ~ Age + Experiment, data = metadata_all, permutations = 999, by="margin") # R2=0.11108
+
+#as a sanity check perform adonis_
+library(dada2)
+library(MiscMetabar)
+
+adonis_pq(rarefied_phyloseq, "Experiment", dist_method = "bray")
+adonis2(bray_distance ~ Experiment, data = metadata_all, permutations = 999) #p=0.001, R2 = 0.1511 (similar to v1)
+#looks identical
+set.seed(1)
+adonis2(bray_distance ~ metadata_all$Experiment, data = metadata_all, permutations = 999) #p=0.001, R2 = 0.1511 (similar to v1)
+
+
+
+
+
+#adonis2(as.matrix(bray_distance) ~ Age + Experiment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1)) # R2=0.1101
+
+
+#adonis2(as.matrix(bray_distance) ~ Treatment, data = metadata_ordered, permutations = 999,  set.seed(seed = 1))
+
+
+#PAIRWISE ADONIS 
+set.seed(1)
+all_group_experiment_bray <-   pairwise.adonis2(bray_distance ~ Group, data = metadata_all, permutations = 999, by="margin")
+
+
+# Safely extract p-values only from valid comparisons
+pvals <- sapply(all_group_experiment_bray, function(x) {
+  if (is.list(x) && "Pr(>F)" %in% names(x)) {
+    return(x$`Pr(>F)`[1])
+  } else {
+    return(NA)  # fallback for invalid comparisons
+  }
+})
+all_group_experiment_bray
+pvals
+pvals_adj <- p.adjust(pvals, method = "BH")
+df_padj_all <- as.data.frame(pvals_adj)
+colnames(df_padj_all) <- c("p-value")
+df_padj_all$test <- "Bray_all"                       
+
+
+
+
+
+#PAIRWISE ADONIS - Treatment effect controlling for age and experiment
+#pairwise.adonis2(as.matrix(bray_distance) ~ Treatment , data = metadata_all, permutations = 999, by="margin", set.seed(seed = 3))
+#pairwise.adonis2(as.matrix(bray_distance) ~ Treatment  + Experiment , data = metadata_all, permutations = 999, by="margin", set.seed(seed = 3))
+
+
+
+
+
+#pairwise.adonis2(as.matrix(bray_distance) ~ Group + Experiment , data = metadata_all, permutations = 999, by="margin", set.seed(seed = 3))
+#airwise.adonis2(as.matrix(bray_distance) ~ Group  , data = metadata_all, permutations = 999, by="margin", set.seed(seed = 3))
+
+
+ pairwise.adonis2(bray_distance ~ Group + Experiment , data = metadata_all, permutations = 999, by="margin")
+
+ pairwise.adonis2(bray_distance ~ Group + Experiment , data = metadata_all, permutations = 999, by="margin")
+ pairwise.adonis2(bray_distance ~ Group  , data = metadata_all, permutations = 999, by="margin")
+
+  
+set.seed(12)
+pairwise.adonis2(bray_distance ~ Group + Experiment, data = metadata_all, permutations = 999, by="margin")
+
+ pairwise.adonis(bray_distance, phyloseq::sample_data(rarefied_phyloseq)$Group, p.adjust.m = "BH")
+df_padj_all
+
+ #p-val 
+```
+
+
+```{r}
+library(pairwiseAdonis)
+#Overall effects of data - unifrac  
+# 2. Extract sample names from distance matrix
+#sample_order_wu <- rownames(as.matrix(wunifrac_distance))
+
+# 3. Reorder metadata to match distance matrix
+#metadata_ordered_wu <- metadata[sample_order, , drop = FALSE]
+#metadata_ordered_wu
+
+
+#all(rownames(wunifrac_distance) == rownames(metadata_ordered_wu))
+
+
+#adonis2(as.matrix(wunifrac_distance) ~ Experiment, data = metadata_ordered_wu, permutations = 999, set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance) ~ Age, data = metadata_ordered_wu, permutations = 999, set.seed(seed = 1)) #p=0.001, r2= 0.136
+#adonis2(as.matrix(wunifrac_distance) ~ Age + Experiment, data = metadata_ordered_wu, permutations = 999, by="margin", set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance) ~ Treatment, data = metadata_ordered_wu, permutations = 999, set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance) ~ Age*Treatment, data = metadata_ordered_wu, permutations = 999, by="margin", set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance) ~ Group + Experiment, data = metadata_ordered_wu, permutations = 999, by="margin", set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance) ~ Group, data = metadata_ordered_wu, permutations = 999, set.seed(seed = 1))
+
+
+
+#adonis2(as.matrix(wunifrac_distance) ~ Group + Experiment, data = metadata_ordered_wu, permutations = 999, by="margin", set.seed(seed = 1))
+
+#adonis2(as.matrix(wunifrac_distance) ~ Group + Experiment +Age, data = metadata_ordered_wu, permutations = 999, by="terms", set.seed(seed = 1))
+
+
+
+
+
+#PAIRWISE ADONIS 
+#PA2_group_experiment_wunifrac <-   pairwise.adonis2(as.matrix(wunifrac_distance) ~ Group + Experiment, data = metadata_ordered_wu, permutations = 999, by="margin", set.seed(seed = 1))
+
+
+# Safely extract p-values only from valid comparisons
+#pvalswu <- sapply(PA2_group_experiment_wunifrac, function(x) {
+ # if (is.list(x) && "Pr(>F)" %in% names(x)) {
+#    return(x$`Pr(>F)`[1])
+#  } else {
+#    return(NA)  # fallback for invalid comparisons
+#  }
+#})
+
+
+#pvals_adj_all_wu <- p.adjust(pvalswu, method = "BH")
+#df_padj_all_wu <- as.data.frame(pvals_adj_all_wu)
+#colnames(df_padj_all_wu) <- c("p-value")
+#df_padj_all_wu$test <- "WU_all"                       
+
+
+
+```
+
+```{r}
+#To test beta dispersion 
+test_dispersion <- function(distance_matrix, physeq_object, group_variable) {
+  metadata <- data.frame(sample_data(physeq_object))
+  
+  if (!(group_variable %in% colnames(metadata))) {
+    stop(paste("Variable", group_variable, "not found in sample_data."))
+  }
+  
+  group <- metadata[[group_variable]]
+  
+  # Ensure the sample order matches between metadata and distance matrix
+  common_samples <- intersect(rownames(metadata), rownames(as.matrix(distance_matrix)))
+  metadata <- metadata[common_samples, , drop = FALSE]
+  distance_matrix <- as.dist(as.matrix(distance_matrix)[common_samples, common_samples])
+  group <- metadata[[group_variable]]
+  
+  bd <- betadisper(distance_matrix, group)
+  anova_result <- anova(bd)
+  return(anova_result)
+}
+
+
+
+
+test_dispersion(bray_distance, physeq_object = rarefied_phyloseq, group_variable = "Experiment") #0.0001762
+test_dispersion(bray_distance, physeq_object = rarefied_phyloseq, group_variable = "Age") #0.001725
+test_dispersion(bray_distance, physeq_object = rarefied_phyloseq, group_variable = "Treatment") #0.097
+test_dispersion(bray_distance, physeq_object = rarefied_phyloseq, group_variable = "Group") #0.004989
+
+
+
+
+
+bray_distance <- phyloseq::distance(rarefied_phyloseq, method = "bray")
+
+sample_sums(rarefied_phyloseq)
+
+metadata_all <-  as(sample_data(rarefied_phyloseq), "data.frame")
+metadata_all <- metadata_all %>%
+  mutate(
+    Age        = factor(Age),
+    Experiment = factor(Experiment),
+    Group      = factor(Group)
+  )
+
+stopifnot(all(rownames(metadata_all) == attr(bray_distance, "Labels")))
+
+bdE <- betadisper(bray_distance, metadata_all$Experiment, type = "median", bias.adjust = FALSE, sqrt.dist = FALSE, add = FALSE)
+class(bdE)
+anova(bdE)
+permutest(bdE)
+
+anova(betadisper(bray_distance, metadata_all$Age, type = "median", bias.adjust = FALSE, sqrt.dist = FALSE, add = FALSE))
+
+anova(betadisper(bray_distance, metadata_all$Treatment, type = "median", bias.adjust = FALSE, sqrt.dist = FALSE, add = FALSE))
+
+
+anova(betadisper(bray_distance, metadata_all$Treatment, type = "median", bias.adjust = FALSE, sqrt.dist = FALSE, add = FALSE))
+anova(betadisper(bray_distance, metadata_all$Treatment), by="groups")
+
+#seems like these match up with my previous way of calculating it
+
+
+
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+set.seed(1)
+#SUBSET FOR GROUPS 
+#subset_1_3_6  <-  subset_samples(physeq_MS, Group == "GP1" | Group == "GP3"| Group == "GP6")
+#rarefied_phyloseq_136 <- rarefy_even_depth(subset_1_3_6, sample.size=4229, rngseed = 1)
+
+
+subset_1_2_3  <-  subset_samples(physeq_MS, Group == "GP1" | Group == "GP2"| Group == "GP3")
+rarefied_phyloseq_123 <- rarefy_even_depth(subset_1_2_3, sample.size=4229, rngseed = 1)
+
+
+subset_4_5_6  <-  subset_samples(physeq_MS, Group == "GP4" | Group == "GP5"| Group == "GP6")
+rarefied_phyloseq_456 <- rarefy_even_depth(subset_4_5_6, sample.size=4229, rngseed = 1)
+
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq_136, distance_method = "wunifrac", color_var = "Group")
+#plot_pcoa_ellipses(rarefied_phyloseq_136, distance_method = "bray", color_var = "Group")
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq_123, distance_method = "wunifrac", color_var = "Treatment")
+plot_pcoa_ellipses(rarefied_phyloseq_123, distance_method = "bray", color_var = "Treatment")
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq_456, distance_method = "wunifrac", color_var = "Group")
+plot_pcoa_ellipses2(rarefied_phyloseq_456, distance_method = "bray", color_var = "Treatment")
+
+
+#SUBSET FOR Experiments 
+
+#subset into each experiment 
+experiment_A <- subset_samples(physeq_MS, Experiment == "A")
+
+rarefied_phyloseq_A <- rarefy_even_depth(experiment_A, sample.size=4229, rngseed = 1)
+tax_table(rarefied_phyloseq_A)
+
+#SUBSET FOR GROUPS WITHIN A 
+#subset_1_3_6_A  <-  subset_samples(experiment_A, Group == "GP1" | Group == "GP3"| Group == "GP6")
+#rarefied_phyloseq_136_A <- rarefy_even_depth(subset_1_3_6_A, sample.size=4229, rngseed = 1)
+
+subset_1_2_3_A  <-  subset_samples(experiment_A, Group == "GP1" | Group == "GP2"| Group == "GP3")
+
+rarefied_phyloseq_123_A <- rarefy_even_depth(subset_1_2_3_A, sample.size=4229, rngseed = 1)
+
+
+subset_4_5_6_A  <-  subset_samples(experiment_A, Group == "GP4" | Group == "GP5"| Group == "GP6")
+rarefied_phyloseq_456_A <- rarefy_even_depth(subset_4_5_6_A, sample.size=4229,rngseed = 1)
+
+
+
+experiment_B <- subset_samples(physeq_MS, Experiment == "B")
+rarefied_phyloseq_B <- rarefy_even_depth(experiment_B, sample.size=4229, rngseed = 1)
+
+#SUBSET FOR GROUPS WITHIN B
+
+#subset_1_3_6_B  <-  subset_samples(experiment_B, Group == "GP1" | Group == "GP3"| Group == "GP6")
+#rarefied_phyloseq_136_B <- rarefy_even_depth(subset_1_3_6_B, sample.size=4229, rngseed = 1)
+
+subset_1_2_3_B  <-  subset_samples(experiment_B, Group == "GP1" | Group == "GP2"| Group == "GP3")
+rarefied_phyloseq_123_B <- rarefy_even_depth(subset_1_2_3_B, sample.size=4229, rngseed = 1)
+
+
+subset_4_5_6_B  <-  subset_samples(experiment_B, Group == "GP4" | Group == "GP5"| Group == "GP6")
+rarefied_phyloseq_456_B <- rarefy_even_depth(subset_4_5_6_B, sample.size=4229, rngseed = 1)
+
+sample_data(subset_4_5_6_B)
+
+
+#EXPERIMENT A
+
+#plot_pcoa_ellipses(rarefied_phyloseq_A, distance_method = "wunifrac", color_var = "Age")
+#plot_pcoa_ellipses(rarefied_phyloseq_A, distance_method = "bray", color_var = "Age")
+
+#plot_pcoa_ellipses(rarefied_phyloseq_A, distance_method = "wunifrac", color_var = "Treatment")
+plot_pcoa_ellipses(rarefied_phyloseq_A, distance_method = "bray", color_var = "Treatment")
+
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq_123_A, distance_method = "wunifrac", color_var = "Treatment")
+plot_pcoa_ellipses(rarefied_phyloseq_123_A, distance_method = "bray", color_var = "Treatment")
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq_456_A, distance_method = "wunifrac", color_var = "Treatment")
+plot_pcoa_ellipses(rarefied_phyloseq_456_A, distance_method = "bray", color_var = "Treatment")
+
+
+#EXPERIMENT B
+
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq_B, distance_method = "wunifrac", color_var = "Age")
+#plot_pcoa_ellipses(rarefied_phyloseq_B, distance_method = "bray", color_var = "Age")
+
+#plot_pcoa_ellipses(rarefied_phyloseq_B, distance_method = "wunifrac", color_var = "Treatment")
+plot_pcoa_ellipses(rarefied_phyloseq_B, distance_method = "bray", color_var = "Treatment")
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq_136_B, distance_method = "wunifrac", color_var = "Group")
+#plot_pcoa_ellipses(rarefied_phyloseq_136_B, distance_method = "bray", color_var = "Group")
+
+
+#plot_pcoa_ellipses(rarefied_phyloseq_123_B, distance_method = "wunifrac", color_var = "Treatment")
+plot_pcoa_ellipses(rarefied_phyloseq_123_B, distance_method = "bray", color_var = "Treatment")
+
+
+#plot_pcoa_ellipses2(rarefied_phyloseq_456_B, distance_method = "wunifrac", color_var = "Treatment")
+
+
+
+```
+
+```{r}
+#plotting san check 
+# 1. Compute Bray-Curtis distance matrix from the rarefied phyloseq object
+bray_dist <- phyloseq::distance(rarefied_phyloseq_123, method = "bray")
+
+# 2. Ordinate using PCoA on the Bray-Curtis distances
+pcoa_ord <- ordinate(rarefied_phyloseq_123, method = "PCoA", distance = "bray")
+
+# 3. Plot, colored by "Group"
+p <- plot_ordination(rarefied_phyloseq_123, pcoa_ord, color = "Group") +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse(aes(group = Group), type = "t", linetype = 2, linewidth = 0.5) +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Bray-Curtis PCoA",
+    color = "Group"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "right"
+  )
+
+print(p)
+
+
+```
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+
+min(sample_sums(physeq_MS))
+4230-1
+
+
+
+
+
+```
+```{r}
+rarefied_phyloseq_123
+
+
+# Compute Bray-Curtis distance matrix from the rarefied object
+bray_dist_123_all <- phyloseq::distance(rarefied_phyloseq_123, method = "bray")
+
+# Extract sample metadata as a dataframe
+sample_df_all_123 <- data.frame(sample_data(rarefied_phyloseq_123))
+
+# Run PERMANOVA testing Group
+ adonis2(bray_dist_123_all ~ Group, data = sample_df_all_123, permutations = 999)
+
+ 
+ 
+ 
+```
+```{r}
+#Plotting Both Experiments (Just Pups SC vs. Control)
+sample_data(physeq_MS)
+
+#subset for just Pups
+physeq_MS_pups <- phyloseq::subset_samples(physeq_MS, Age == "Pups")
+sample_data(physeq_MS_pups)
+
+#subset for just SC or Control pups 
+physeq_MS_pups_cont_sc <- phyloseq::subset_samples(physeq_MS_pups, Treatment == "Control" | Treatment == "SC")
+
+rarefied_physeq_MS_pups_cont_sc <- rarefy_even_depth(physeq_MS_pups_cont_sc, sample.size=4229, rngseed = 1)
+
+
+#Sanity: 
+
+# Compute Bray-Curtis distance matrix from the rarefied object
+bray_dist_sc_cont_all_pups <- phyloseq::distance(rarefied_physeq_MS_pups_cont_sc, method = "bray")
+
+# Extract sample metadata as a dataframe
+sample_df_all_sc_cont_pups <- data.frame(sample_data(rarefied_physeq_MS_pups_cont_sc))
+
+labels_bray_sccontpupsall <- attr(bray_dist_sc_cont_all_pups, "Labels")
+
+all(rownames(sample_df_all_sc_cont_pups) == labels_bray_sccontpupsall)
+# Run PERMANOVA testing Group
+ vegan::adonis2(bray_dist_sc_cont_all_pups ~ Group, data = sample_df_all_sc_cont_pups, permutations = 999)
+
+
+
+
+ ##PLOT BRAY - PUPS SC VS. CONTROL - ALL 
+ 
+ # Bray–Curtis distance followed by PCoA
+ord_bray_pups_sc_control <- ordinate(
+  rarefied_physeq_MS_pups_cont_sc,
+  method = "PCoA",
+  distance = "bray"
+)
+
+library(phyloseq)
+library(ggplot2)
+
+plot_ordination(
+  rarefied_physeq_MS_pups_cont_sc,
+  ord_bray_pups_sc_control,
+  type = "samples",
+  color = "Treatment"
+) +
+  stat_ellipse(
+    aes(
+      group = Treatment,
+      fill = Treatment
+    ),
+    geom = "polygon",
+    type = "t",
+    level = 0.95,
+    alpha = 0.20,
+    colour = NA,
+    show.legend = FALSE
+  ) +
+  geom_point(size = 3) +
+  scale_color_manual(
+    values = c(
+      Control = "#808080",
+      SC = "#B39DDB"
+    ),
+    breaks = c("Control", "SC"),
+    labels = c("BCG-Control", "BCG-SC")
+  ) +
+  scale_fill_manual(
+    values = c(
+      Control = "#808080",
+      SC = "#B39DDB"
+    )
+  ) +
+  labs(
+    title = "Bray–Curtis PCoA",
+    color = "Treatment"
+  ) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+
+plot_ordination(
+  rarefied_physeq_MS_pups_cont_sc,
+  ord_bray_pups_sc_control,
+  type = "samples",
+  color = "Treatment"
+)
+```
+
+```{r}
+
+#subset for just Pups
+physeq_MS_pups <- phyloseq::subset_samples(physeq_MS, Age == "Pups")
+sample_data(physeq_MS_pups)
+
+#subset for just IV or Control pups 
+physeq_MS_pups_cont_iv <- phyloseq::subset_samples(physeq_MS_pups, Treatment == "Control" | Treatment == "IV")
+
+rarefied_physeq_MS_pups_cont_iv <- rarefy_even_depth(physeq_MS_pups_cont_iv, sample.size=4229, rngseed = 1)
+
+sample_data(rarefied_physeq_MS_pups_cont_iv)
+sample_sums(rarefied_physeq_MS_pups_cont_iv)
+
+
+
+ # Bray–Curtis distance followed by PCoA
+ord_bray_pups_control_iv <- ordinate(
+  rarefied_physeq_MS_pups_cont_iv,
+  method = "PCoA",
+  distance = "bray"
+)
+
+library(phyloseq)
+library(ggplot2)
+
+plot_ordination(
+  rarefied_physeq_MS_pups_cont_iv,
+  ord_bray_pups_control_iv,
+  type = "samples",
+  color = "Treatment"
+) +
+  stat_ellipse(
+    aes(
+      group = Treatment,
+      fill = Treatment
+    ),
+    geom = "polygon",
+    type = "t",
+    level = 0.95,
+    alpha = 0.20,
+    colour = NA,
+    show.legend = FALSE
+  ) +
+  geom_point(size = 3) +
+  scale_color_manual(
+    values = c(
+      Control = "#808080",
+      IV = "#008080"
+    ),
+    breaks = c("Control", "IV"),
+    labels = c("BCG-Control", "BCG-IV")
+  ) +
+  scale_fill_manual(
+    values = c(
+      Control = "#808080",
+      IV = "#008080"
+    )
+  ) +
+  labs(
+    title = "Bray–Curtis PCoA",
+    color = "Treatment"
+  ) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+
+
+
+```
+
+```{r}
+#Now in Adults 
+
+#subset for just Adults
+physeq_MS_adult <- phyloseq::subset_samples(physeq_MS, Age == "Adult")
+sample_data(physeq_MS_adult)
+
+
+
+#subset for just SC or Control adults 
+physeq_MS_adult_cont_sc <- phyloseq::subset_samples(physeq_MS_adult, Treatment == "Control" | Treatment == "SC")
+
+rarefied_physeq_MS_adult_cont_sc <- rarefy_even_depth(physeq_MS_adult_cont_sc, sample.size=4229, rngseed = 1)
+
+sample_data(rarefied_physeq_MS_adult_cont_sc)
+sample_sums(rarefied_physeq_MS_adult_cont_sc)
+
+
+
+ # Bray–Curtis distance followed by PCoA
+ord_bray_pups_adult_sc <- ordinate(
+  rarefied_physeq_MS_adult_cont_sc,
+  method = "PCoA",
+  distance = "bray"
+)
+
+plot_ordination(
+  rarefied_physeq_MS_adult_cont_sc,
+  ord_bray_pups_adult_sc,
+  type = "samples",
+  color = "Treatment"
+) +
+  stat_ellipse(
+    aes(
+      group = Treatment,
+      fill = Treatment
+    ),
+    geom = "polygon",
+    type = "t",
+    level = 0.95,
+    alpha = 0.20,
+    colour = NA,
+    show.legend = FALSE
+  ) +
+  geom_point(size = 3) +
+  scale_color_manual(
+    values = c(
+      Control = "#003366",
+      SC = "#D62728"
+    ),
+    breaks = c("Control", "SC"),
+    labels = c("BCG-Control", "BCG-SC")
+  ) +
+  scale_fill_manual(
+    values = c(
+      Control = "#808080",
+      SC = "#D62728"
+
+    )
+  ) +
+  labs(
+    title = "Bray–Curtis PCoA",
+    color = "Treatment"
+  ) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+
+
+# Compute Bray-Curtis distance matrix from the rarefied object
+bray_dist_sc_cont_all_adult <- phyloseq::distance(rarefied_physeq_MS_adult_cont_sc, method = "bray")
+
+# Extract sample metadata as a dataframe
+sample_df_all_sc_cont_adult <- data.frame(sample_data(rarefied_physeq_MS_adult_cont_sc))
+
+labels_bray_sccontpupsalladult <- attr(bray_dist_sc_cont_all_adult, "Labels")
+
+all(rownames(sample_df_all_sc_cont_adult) == labels_bray_sccontpupsalladult)
+# Run PERMANOVA testing Group
+ vegan::adonis2(bray_dist_sc_cont_all_adult ~ Group, data = sample_df_all_sc_cont_adult, permutations = 999)
+
+
+
+
+
+```
+```{r}
+
+#subset for just Adults
+physeq_MS_adult <- phyloseq::subset_samples(physeq_MS, Age == "Adult")
+sample_data(physeq_MS_adult)
+
+
+
+#subset for just SC or Control adults 
+physeq_MS_adult_cont_iv <- phyloseq::subset_samples(physeq_MS_adult, Treatment == "Control" | Treatment == "IV")
+
+rarefied_physeq_MS_adult_cont_iv <- rarefy_even_depth(physeq_MS_adult_cont_iv, sample.size=4229, rngseed = 1)
+
+sample_data(physeq_MS_adult_cont_iv)
+sample_sums(physeq_MS_adult_cont_iv)
+
+
+
+ # Bray–Curtis distance followed by PCoA
+ord_bray_adult_iv <- ordinate(
+  rarefied_physeq_MS_adult_cont_iv,
+  method = "PCoA",
+  distance = "bray"
+)
+
+plot_ordination(
+  rarefied_physeq_MS_adult_cont_iv,
+  ord_bray_adult_iv,
+  type = "samples",
+  color = "Treatment"
+) +
+  stat_ellipse(
+    aes(
+      group = Treatment,
+      fill = Treatment
+    ),
+    geom = "polygon",
+    type = "t",
+    level = 0.95,
+    alpha = 0.20,
+    colour = NA,
+    show.legend = FALSE
+  ) +
+  geom_point(size = 3) +
+  scale_color_manual(
+    values = c(
+      Control = "#003366",
+      IV = "#FF7F0E"
+
+    ),
+    breaks = c("Control", "IV"),
+    labels = c("BCG-Control", "BCG-IV")
+  ) +
+  scale_fill_manual(
+    values = c(
+      Control =  "#003366",
+      IV = "#FF7F0E"
+
+
+    )
+  ) +
+  labs(
+    title = "Bray–Curtis PCoA",
+    color = "Treatment"
+  ) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+```
+
+```{r}
+ord_bray_adult_sc_control_microviz <- rarefied_physeq_MS_adult_cont_sc %>%
+  tax_transform("identity") %>%
+  dist_calc("bray") %>%
+  ord_calc(method = "PCoA")
+
+ord_bray_adult_sc_control_microviz %>%
+  ord_plot(
+    color = "Treatment",
+    size = 3
+  ) 
+
+
+physeq_MS_adult_cont_sc_test2 <- phyloseq::subset_samples(physeq_MS_adult, Treatment == "Control" | Treatment == "SC" | Treatment == "IV")
+
+rarefied_physeq_MS_adult_cont_iv2 <- rarefy_even_depth(physeq_MS_adult_cont_sc_test2, sample.size=4229, rngseed = 1)
+
+
+ord_bray_adult_sc_control_microviz2 <- physeq_MS_adult_cont_sc_test2 %>%
+  tax_transform("identity") %>%
+  dist_calc("bray") %>%
+  ord_calc(method = "PCoA")
+
+ord_bray_adult_sc_control_microviz2 %>%
+  ord_plot(
+    color = "Treatment",
+    size = 3
+  ) 
+
+```
+
+```{r}
+#BRAY_CURTIS PERMANOVAS: EXPERIMENT A 
+
+
+#What is the effect of Experiment on composition (univariate)
+
+experiment_A <- subset_samples(physeq_MS, Experiment == "A")
+
+rarefied_phyloseq_A <- rarefy_even_depth(experiment_A, sample.size=4229, rngseed = 1)
+
+bray_distance_A <- phyloseq::distance(rarefied_phyloseq_A, method = "bray")
+#wunifrac_distance_A <- phyloseq::distance(rarefied_phyloseq_A, method = "wunifrac")
+
+metadata_A <-  as(sample_data(rarefied_phyloseq_A), "data.frame")
+metadata_A <- metadata_A %>%
+  mutate(
+    Age        = factor(Age),
+    Experiment = factor(Experiment),
+    Group      = factor(Group)
+  )
+
+
+labels_bray_A <- attr(bray_distance_A, "Labels")
+
+all(rownames(metadata_A) == labels_bray_A)
+
+
+# 2. Extract sample names from distance matrix
+#sample_order_A <- rownames(as.matrix(bray_distance_A))
+
+# 3. Reorder metadata to match distance matrix
+#metadata_df_A <- as(sample_data(rarefied_phyloseq_A), "data.frame")
+
+#metadata_ordered_A <- metadata_df_A[sample_order_A, , drop = FALSE]
+
+
+
+adonis2(bray_distance_A ~ Group, data = metadata_A, permutations = 999)
+
+adonis2(bray_distance_A ~ metadata_A$Group, data = metadata_A, permutations = 999)
+
+
+
+class(bray_distance_A)
+
+#adonis2(as.matrix(bray_distance) ~ Age*Treatment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1))
+#adonis2(as.matrix(bray_distance) ~ Group + Experiment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1))
+
+
+
+
+#PAIRWISE ADONIS 
+set.seed(1)
+PA_group_experiment_bray_A <-   pairwise.adonis2(bray_distance_A ~ Group, data = metadata_A, permutations = 999)
+
+
+# Safely extract p-values only from valid comparisons
+pvals_A <- sapply(PA_group_experiment_bray_A, function(x) {
+  if (is.list(x) && "Pr(>F)" %in% names(x)) {
+    return(x$`Pr(>F)`[1])
+  } else {
+    return(NA)  # fallback for invalid comparisons
+  }
+})
+
+pvals_adj_A <- p.adjust(pvals_A, method = "BH")
+
+df_padj_A <- as.data.frame(pvals_adj_A)
+colnames(df_padj_A) <- c("p-value")
+df_padj_A$test <- "Bray_ExperimentA"
+
+
+
+
+#overall p-value: 
+
+ps_GP1_2_3_A <- subset_samples(rarefied_phyloseq_A, Group == "GP1" | Group == "GP2" | Group == "GP3")
+
+ps_GP1_2_3_A_dist  <-  phyloseq::distance(ps_GP1_2_3_A, method ="bray")
+
+
+
+metadata_A_123 <-  as(sample_data(ps_GP1_2_3_A), "data.frame")
+metadata_A_123 <- metadata_A_123 %>%
+  mutate(
+    Age        = factor(Age),
+    Experiment = factor(Experiment),
+    Group      = factor(Group)
+  )
+
+
+labels_bray_A_123 <- attr(ps_GP1_2_3_A_dist, "Labels")
+
+all(rownames(metadata_A_123) == labels_bray_A_123)
+
+
+set.seed(1)
+adonis2(ps_GP1_2_3_A_dist ~ Group, data = metadata_A_123, permutations = 999) #R-sequared = 54.935
+
+
+
+ps_GP4_5_6_A <- subset_samples(rarefied_phyloseq_A, Group == "GP4" | Group == "GP5" | Group == "GP6")
+ps_GP4_5_6_A_dist  <-  phyloseq::distance(ps_GP4_5_6_A, method ="bray")
+
+
+metadata_A_456 <-  as(sample_data(ps_GP4_5_6_A), "data.frame")
+metadata_A_456 <- metadata_A_456 %>%
+  mutate(
+    Age        = factor(Age),
+    Experiment = factor(Experiment),
+    Group      = factor(Group)
+  )
+
+
+labels_bray_A_456 <- attr(ps_GP4_5_6_A_dist, "Labels")
+
+all(rownames(metadata_A_456) == labels_bray_A_456)
+
+
+
+adonis2(ps_GP4_5_6_A_dist ~ Group, data = metadata_A_456, permutations = 999, set.seed(seed = 3)) #R-sequared = 54.935
+
+```
+
+
+```{r}
+#as sanity check also do with the same syntax as the github - except use a p-value adjustment
+
+
+ps_dist_matrix_A <- phyloseq::distance(rarefied_phyloseq_A, method ="bray")
+
+
+pairwise.adonis(ps_dist_matrix_A, phyloseq::sample_data(rarefied_phyloseq_A)$Group, p.adjust.m = "BH")
+pairwise.adonis2(bray_distance_A ~ Group, data = metadata_A, permutations = 999)
+
+
+
+```
+```{r}
+#Sanity Check to ensure PCoA makes sense in samples 1,2,3
+ps_GP1_2_3_A_test <- subset_samples(rarefied_phyloseq_A, Group == "GP1" | Group == "GP2" | Group == "GP3")
+  
+ps_GP1_2_3_A_test_dist  <-  phyloseq::distance(ps_GP1_2_3_A_test, method ="bray")
+
+ord_A123_test <- ordinate(ps_GP1_2_3_A_test, method = "PCoA", distance = ps_GP1_2_3_A_test_dist)
+
+ord_A123_test2 <- ordinate(ps_GP1_2_3_A_test, method = "PCoA", distance = "bray")
+
+
+# 5. Plot PCoA colored by the new categorical variable
+plot_ordination(ps_GP1_2_3_A_test, ord_A123_test, color = "Group") +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_bw() 
+#  scale_color_viridis_c(option = "C") +
+  #labs(color = "Group",
+      # x = "PCoA1",
+     #  y = "PCoA2")
+
+plot_ordination(ps_GP1_2_3_A_test, ord_A123_test2, color = "Group") +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_bw() 
+#  scale_color_viridis_c(option = "C") +
+  #labs(color = "Group",
+      # x = "PCoA1",
+     #  y = "PCoA2")
+  
+```
+
+
+
+
+
+```{r}
+#WUNIFRAC PERMANOVAS: EXPERIMENT A 
+
+
+#What is the effect of Experiment on composition (univariate)
+
+#bray_distance_A <- phyloseq::distance(rarefied_phyloseq_A, method = "bray")
+#wunifrac_distance_A <- phyloseq::distance(rarefied_phyloseq_A, method = "wunifrac")
+
+
+# 2. Extract sample names from distance matrix
+#sample_order_A_wu <- rownames(as.matrix(wunifrac_distance_A))
+
+# 3. Reorder metadata to match distance matrix
+#metadata_df_A <- as(sample_data(rarefied_phyloseq_A), "data.frame")
+
+#metadata_ordered_A <- metadata_df_A[sample_order_A, , drop = FALSE]
+#
+
+#all(rownames(wunifrac_distance_A) == rownames(metadata_ordered_A))
+
+
+
+#adonis2(as.matrix(wunifrac_distance_A) ~ Age, data = metadata_ordered_A, permutations = 999,  set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance_A) ~ Treatment, data = metadata_ordered_A, permutations = 999,  set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance_A) ~ Group, data = metadata_ordered_A, permutations = 999,  set.seed(seed = 1))
+
+
+
+#adonis2(as.matrix(bray_distance) ~ Age*Treatment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1))
+#adonis2(as.matrix(bray_distance) ~ Group + Experiment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1))
+
+
+
+
+#PAIRWISE ADONIS 
+#PA2_group_experiment_wu_A <-   pairwise.adonis2(as.matrix(wunifrac_distance_A) ~ Group, data = metadata_ordered_A, permutations = 999, by="margin", set.seed(seed = 1))
+
+
+# Safely extract p-values only from valid comparisons
+#pvals_A_wu <- sapply(PA2_group_experiment_wu_A, function(x) {
+  #if (is.list(x) && "Pr(>F)" %in% names(x)) {
+  #  return(x$`Pr(>F)`[1])
+  #} else {
+  #  return(NA)  # fallback for invalid comparisons
+ # }
+#})
+
+#pvals_adj_A_wu <- p.adjust(pvals_A_wu, method = "BH")
+
+#df_padj_A_wu <- as.data.frame(pvals_adj_A_wu)
+#colnames(df_padj_A_wu) <- c("p-value")
+#df_padj_A_wu$test <- "WU_ExperimentA"                       
+
+```
+
+```{r}
+#BRAY_CURTIS PERMANOVAS: EXPERIMENT B
+set.seed(20)
+
+sample_sums(experiment_B)
+sample_sums(experiment_A)
+
+
+
+experiment_B <- subset_samples(physeq_MS, Experiment == "B")
+rarefied_phyloseq_B <- rarefy_even_depth(experiment_B, sample.size=4229, rngseed = 1)
+
+
+
+bray_distance_B <- phyloseq::distance(rarefied_phyloseq_B, method = "bray")
+#wunifrac_distance_B <- phyloseq::distance(rarefied_phyloseq_B, method = "wunifrac")
+
+
+
+
+metadata_B <-  as(sample_data(rarefied_phyloseq_B), "data.frame")
+metadata_B <- metadata_B %>%
+  mutate(
+    Age        = factor(Age),
+    Experiment = factor(Experiment),
+    Group      = factor(Group)
+  )
+
+
+labels_bray_B <- attr(bray_distance_B, "Labels")
+
+all(rownames(metadata_B) == labels_bray_B)
+
+
+#adonis2(as.matrix(bray_distance) ~ Age*Treatment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1))
+#adonis2(as.matrix(bray_distance) ~ Group + Experiment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1))
+
+
+all(rownames(as.matrix(bray_distance_B)) == rownames(metadata_B))
+
+set.seed(1)
+PA2_group_experiment_bray_B <-   pairwise.adonis2(bray_distance_B ~ Group, data = metadata_B, permutations = 999)
+
+
+
+
+#PAIRWISE ADONIS 
+?pairwise.adonis()
+
+# Safely extract p-values only from valid comparisons
+pvals_B <- sapply(PA2_group_experiment_bray_B, function(x) {
+  if (is.list(x) && "Pr(>F)" %in% names(x)) {
+    return(x$`Pr(>F)`[1])
+  } else {
+    return(NA)  # fallback for invalid comparisons
+  }
+})
+
+
+PA2_group_experiment_bray_B
+pvals_B
+pvals_adj_B <- p.adjust(pvals_B, method = "BH")
+df_padj_B <- as.data.frame(pvals_adj_B)
+colnames(df_padj_B) <- c("p-value")
+df_padj_B$test <- "Bray_ExperimentB"                       
+
+df_padj_B
+sample_data(physeq_MS)
+
+
+
+
+
+
+
+#PAIRWISE ADONIS 
+
+
+bray_distance_B_test123 <- phyloseq::distance(rarefied_phyloseq_123_B, method = "bray")
+
+metadata_df_B_test_123 <- as(sample_data(rarefied_phyloseq_123_B), "data.frame")
+
+metadata_df_B_test_123 <- metadata_df_B_test_123 %>%
+  mutate(
+    Age        = factor(Age),
+    Experiment = factor(Experiment),
+    Group      = factor(Group)
+  )
+
+labels_bray_B_123 <- attr(bray_distance_B_test123, "Labels")
+
+all(rownames(metadata_df_B_test_123) == labels_bray_B_123)
+
+
+adonis2(bray_distance_B_test123 ~ Group, data=metadata_df_B_test_123)
+
+
+
+bray_distance_B_test456 <- phyloseq::distance(rarefied_phyloseq_456_B, method = "bray")
+
+metadata_df_B_test_456 <- as(sample_data(rarefied_phyloseq_456_B), "data.frame")
+
+
+
+metadata_df_B_test_456 <- metadata_df_B_test_456 %>%
+  mutate(
+    Age        = factor(Age),
+    Experiment = factor(Experiment),
+    Group      = factor(Group)
+  )
+
+
+labels_bray_B_456 <- attr(bray_distance_B_test456, "Labels")
+
+all(rownames(metadata_df_B_test_456) == labels_bray_B_456)
+
+
+adonis2(bray_distance_B_test456 ~ Group, data=metadata_df_B_test_456)
+adonis2(bray_distance_B_test456 ~ metadata_df_B_test_456$Group, data=metadata_df_B_test_456)
+
+
+
+#sanity check - perform pairwise with syntax of interest: 
+
+
+ps_dist_matrix_B <- phyloseq::distance(rarefied_phyloseq_B, method ="bray")
+
+
+pairwise.adonis(ps_dist_matrix_B, phyloseq::sample_data(rarefied_phyloseq_B)$Group, p.adjust.m = "BH")
+
+
+
+
+
+#p-value extract sanity 
+comparison_names_B <- setdiff(
+    names(PA2_group_experiment_bray_B),
+    "parent_call"
+)
+
+group_pvalues_B <- do.call(
+    rbind,
+    lapply(comparison_names_B, function(comp) {
+
+        x <- PA2_group_experiment_bray_B[[comp]]
+
+        if (
+            !is.null(x) &&
+            "Model" %in% rownames(x) &&
+            "Pr(>F)" %in% colnames(x)
+        ) {
+            data.frame(
+                comparison = comp,
+                p_value = as.numeric(x["Model", "Pr(>F)"]),
+                row.names = NULL
+            )
+        } else {
+            data.frame(
+                comparison = comp,
+                p_value = NA_real_,
+                row.names = NULL
+            )
+        }
+    })
+)
+group_pvalues_B$p_adjusted_BH <- p.adjust(
+    group_pvalues_B$p_value,
+    method = "BH"
+)
+
+PA2_group_experiment_bray_B
+group_pvalues_B
+
+
+```
+
+
+
+```{r}
+#Weighted UNIFRAC PERMANOVAS: EXPERIMENT B
+
+
+#What is the effect of Experiment on composition (univariate)
+
+#wunifrac_distance_B <- phyloseq::distance(rarefied_phyloseq_B, method = "wunifrac")
+
+
+# 2. Extract sample names from distance matrix
+#sample_order_B <- rownames(as.matrix(wunifrac_distance_B))
+
+# 3. Reorder metadata to match distance matrix
+#metadata_df_B <- as(sample_data(rarefied_phyloseq_B), "data.frame")
+
+#metadata_ordered_B <- metadata_df_B[sample_order_B, , drop = FALSE]
+
+
+#all(rownames(wunifrac_distance_B) == rownames(metadata_ordered_B))
+
+
+
+#adonis2(as.matrix(wunifrac_distance_B) ~ Age, data = metadata_ordered_B, permutations = 999,  set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance_B) ~ Treatment, data = metadata_ordered_B, permutations = 999,  set.seed(seed = 1))
+#adonis2(as.matrix(wunifrac_distance_B) ~ Group, data = metadata_ordered_B, permutations = 999,  set.seed(seed = 1))
+
+
+
+#adonis2(as.matrix(bray_distance) ~ Age*Treatment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1))
+#adonis2(as.matrix(bray_distance) ~ Group + Experiment, data = metadata_ordered, permutations = 999, by="margin",  set.seed(seed = 1))
+
+
+
+
+#PAIRWISE ADONIS 
+#PA2_group_experiment_wu_B <-   pairwise.adonis2(as.matrix(wunifrac_distance_B) ~ Group, data = metadata_ordered_B, permutations = 999, by="margin")
+
+
+# Safely extract p-values only from valid comparisons
+#pvals_B_Wu <- sapply(PA2_group_experiment_wu_B, function(x) {
+ # if (is.list(x) && "Pr(>F)" %in% names(x)) {
+ #   return(x$`Pr(>F)`[1])
+ # } else {
+ #   return(NA)  # fallback for invalid comparisons
+ # }
+#})
+
+#pvals_adj_B_wu <- p.adjust(pvals_B_Wu, method = "BH")
+
+#pvals_adj_B_wu <- p.adjust(pvals_adj_B_wu, method = "BH")
+#df_padj_B_wu <- as.data.frame(pvals_adj_B_wu)
+#colnames(df_padj_B_wu) <- c("p-value")
+#df_padj_B_wu$test <- "WU_ExperimentB"                       
+#sample_data(physeq_MS)
+```
+
+```{r}
+
+#ps_dist_matrix_B_2 <- phyloseq::distance(rarefied_phyloseq_A, method ="bray")
+
+
+#pairwise.adonis(ps_dist_matrix_A, phyloseq::sample_data(rarefied_phyloseq_A)$Group, p.adjust.m = "BH")
+```
+
+
+
+```{r}
+#combine dfs of all of the tests
+df_padj_all <- rownames_to_column(df_padj_all, var = "Comparison")
+#df_padj_all_wu <- rownames_to_column(df_padj_all_wu, var = "Comparison")
+df_padj_A <- rownames_to_column(df_padj_A, var = "Comparison")
+#df_padj_A_wu <- rownames_to_column(df_padj_A_wu, var = "Comparison")
+df_padj_B <- rownames_to_column(df_padj_B, var = "Comparison")
+#df_padj_B_wu <- rownames_to_column(df_padj_B_wu, var = "Comparison")
+
+combined_1 <- rbind(df_padj_A,df_padj_B, df_padj_all)
+
+df_padj_wide <- pivot_wider(
+  combined_1,
+  names_from = test,
+  values_from = `p-value`  # use backticks if the column has a hyphen
+)
+
+sample_data(experiment_A)
+
+sample_data(experiment_A)
+sample_data(experiment_B)
+
+df_padj_A
+df_padj_wide
+```
+
+
+```{r}
+#PCOA plots for the paper: 
+
+#1 Experiment Effect Overall: 
+ex_bray_pcoa <- plot_pcoa_ellipses(rarefied_phyloseq, distance_method = "bray", color_var = "Experiment")
+
+
+
+# Export as high-resolution TIFF
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/pcoa_ex.tiff", width = 11, height = 7, units = "in", res = 1000)
+print(ex_bray_pcoa)
+dev.off()
+
+
+
+
+
+
+#2 Age Effect Overall: Using the 3rd function for proper age naming 
+age_bray_pcoa <- plot_pcoa_ellipses3(rarefied_phyloseq, distance_method = "bray", color_var = "Age")
+
+
+
+# Export as high-resolution TIFF
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/AGE_PCOA_bray.tiff", width = 11, height = 7, units = "in", res = 1000)
+print(age_bray_pcoa)
+dev.off()
+
+
+
+#3 Treatment Effect (Pups): 
+
+#EXPERIMENT A
+exA_123 <- plot_pcoa_ellipses(rarefied_phyloseq_123_A, distance_method = "bray", color_var = "Treatment")
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/EXA_123_PCOA_bray.tiff", width = 11, height = 7, units = "in", res = 1000)
+print(exA_123)
+dev.off()
+
+
+
+#Experiment B pups
+
+exB_123 <- plot_pcoa_ellipses(rarefied_phyloseq_123_B, distance_method = "bray", color_var = "Treatment")
+
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/EXB_123_PCOA_bray.tiff", width = 11, height = 7, units = "in", res = 1000)
+print(exB_123)
+dev.off()
+
+
+#EXP B ADULTS
+
+exB_456_adults <- plot_pcoa_ellipses2(rarefied_phyloseq_456_B, distance_method = "bray", color_var = "Treatment")
+plot_pcoa_ellipses2(rarefied_phyloseq_456_B, distance_method = "bray", color_var = "Treatment")
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/EXB_456_adults_PCOA_bray.tiff", width = 11, height = 7, units = "in", res = 1000)
+print(exB_456_adults)
+dev.off()
+
+
+#EX A ADULTS
+exA_456_adults <- plot_pcoa_ellipses2(rarefied_phyloseq_456_A, distance_method = "bray", color_var = "Treatment")
+plot_pcoa_ellipses2(rarefied_phyloseq_456_A, distance_method = "bray", color_var = "Treatment")
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/EXA_456_adults_PCOA_bray.tiff", width = 11, height = 7, units = "in", res = 1000)
+print(exA_456_adults)
+dev.off()
+
+
+```
+
+```{r}
+test_dispersion <- function(distance_matrix, physeq_object, group_variable) {
+  metadata <- data.frame(sample_data(physeq_object))
+  
+  if (!(group_variable %in% colnames(metadata))) {
+    stop(paste("Variable", group_variable, "not found in sample_data."))
+  }
+  
+  group <- metadata[[group_variable]]
+  
+  # Ensure the sample order matches between metadata and distance matrix
+  common_samples <- intersect(rownames(metadata), rownames(as.matrix(distance_matrix)))
+  metadata <- metadata[common_samples, , drop = FALSE]
+  distance_matrix <- as.dist(as.matrix(distance_matrix)[common_samples, common_samples])
+  group <- metadata[[group_variable]]
+  
+  bd <- betadisper(distance_matrix, group)
+  anova_result <- anova(bd)
+  return(anova_result)
+  
+
+}
+
+#123 - Exeriment A Dispersion: 
+#first calculate bray distance with just 123B 
+set.seed(3)
+rarefied_phyloseq_123_A <- rarefy_even_depth(subset_1_2_3_A, sample.size=4229, rngseed = 1)
+
+#test in other way 
+bray_distance_A_123 <- phyloseq::distance(rarefied_phyloseq_123_A, method = "bray")
+meta_123A <- as(sample_data(rarefied_phyloseq_123_A), "data.frame")
+
+all(rownames(meta_123A) == labels(bray_distance_A_123))
+permutest(betadisper(bray_distance_A_123, as.factor(meta_123A$Group)))
+
+permutest(betadisper(bray_distance_A_123, as.factor(meta_123A$Group))) #0.974
+
+
+
+
+
+#456 - Exeriment A Dispersion: 
+#first calculate bray distance with just 456B 
+set.seed(3)
+rarefied_phyloseq_456_A <- rarefy_even_depth(subset_4_5_6_A, sample.size=4229, rngseed = 1)
+bray_distance_A_456 <- phyloseq::distance(rarefied_phyloseq_456_A, method = "bray")
+test_dispersion(bray_distance_A_456,rarefied_phyloseq_456_A, "Group")
+
+#sanity check 
+bray_distance_A_456 <- phyloseq::distance(rarefied_phyloseq_456_A, method = "bray")
+meta_456A <- as(sample_data(rarefied_phyloseq_456_A), "data.frame")
+all(rownames(meta_456A) == labels(bray_distance_A_456))
+
+permutest(betadisper(bray_distance_A_456, as.factor(meta_456A$Group))) #0.879
+test_dispersion(bray_distance_A_456,rarefied_phyloseq_456_A, "Group") #0.8138
+
+
+
+#123 - Exeriment B Dispersion: 
+#first calculate bray distance with just 123B 
+set.seed(3)
+rarefied_phyloseq_123_B <- rarefy_even_depth(subset_1_2_3_B, sample.size=4229, rngseed = 1)
+bray_distance_B_123 <- phyloseq::distance(rarefied_phyloseq_123_B, method = "bray")
+meta_123B <- as(sample_data(rarefied_phyloseq_123_B), "data.frame")
+
+all(rownames(meta_123B) == labels(bray_distance_B_123))
+
+test_dispersion(bray_distance_B_123,rarefied_phyloseq_123_B, "Group") #0.1743
+permutest(betadisper(bray_distance_B_123, meta_123B$Group)) #0.177
+
+
+
+
+
+#456 - Exeriment A Dispersion: 
+#first calculate bray distance with just 456B 
+set.seed(3)
+rarefied_phyloseq_456_B <- rarefy_even_depth(subset_4_5_6_B, sample.size=4229, rngseed = 1)
+bray_distance_B_456 <- phyloseq::distance(rarefied_phyloseq_456_B, method = "bray")
+meta_456B <- as(sample_data(rarefied_phyloseq_456_B), "data.frame")
+
+all(rownames(meta_456B) == labels(bray_distance_B_456))
+
+test_dispersion(bray_distance_B_456,rarefied_phyloseq_456_B, "Group") #p=0.4154
+permutest(betadisper(bray_distance_B_456, meta_456B$Group)) #0.428
+
+
+
+
+```
+
+
+```{r}
+#Let's plot the composition of our taxa in the dataset
+#we are going to be using the Microviz comp-barplot command 
+#First we want to deal with NAs 
+library(microViz)
+phyloseq.MS.fix <- physeq_MS %>%
+ tax_fix(
+  unknowns = c(""),
+  sep = " ", anon_unique = TRUE,
+  suffix_rank = "classified"
+ )
+sample_data(phyloseq.MS.fix)
+
+tax_table(phyloseq.MS.fix)
+#Let's look at phylum level analyses first 
+comp_barplot(phyloseq.MS.fix, tax_level = "Family", group_by = "Group", n_taxa = 15, facet_by = "Experiment")
+
+
+
+
+
+```
+
+
+```{r}
+#CHECK TAX TABLE TO SEE HOW MANY UNCLASSIFIED GENERA WE HAVE 
+# Extract taxonomy table
+tax <- tax_table(physeq_MS)
+
+# Check what taxonomic ranks are available
+colnames(tax)
+
+
+# Convert to character to avoid issues with factors
+tax_df <- as.data.frame(tax)
+tax_df[] <- lapply(tax_df, as.character)
+
+
+
+# Calculate total number of ASVs
+total_asvs <- nrow(tax_df)
+
+
+#PERCENTAGE OF CLASSIFIED ASV's 
+
+unclassified_fam <- sum(
+  is.na(tax_df$Family) | tax_df$Family == "" | grepl("unclassified|uncultured|unknown", tax_df$Family, ignore.case = TRUE)
+)
+
+
+# Count unclassified at Genus level
+unclassified_genus <- sum(
+  is.na(tax_df$Genus) | tax_df$Genus == "" | grepl("unclassified|uncultured|unknown", tax_df$Genus, ignore.case = TRUE)
+)
+
+# Count unclassified at Species level
+unclassified_species <- sum(
+  is.na(tax_df$Species) | tax_df$Species == "" | grepl("unclassified|uncultured|unknown", tax_df$Species, ignore.case = TRUE)
+)
+
+# Percentages
+pct_unclassified_genus <- unclassified_genus / total_asvs * 100
+pct_unclassified_species <- unclassified_species / total_asvs * 100
+pct_unclassified_fam <- unclassified_fam / total_asvs*100
+
+# Output
+cat(sprintf("Percentage of ASVs unclassified at Genus level: %.2f%%\n", pct_unclassified_genus)) #TAXA UNCLASSIFIED AT THE FAMILY LEVEL 
+cat(sprintf("Percentage of ASVs unclassified at Species level: %.2f%%\n", pct_unclassified_species))
+cat(sprintf("Percentage of ASVs unclassified at Family level: %.2f%%\n", pct_unclassified_fam))
+
+
+
+# Function to get classified/unclassified counts
+get_classification_status <- function(column) {
+  classified <- sum(!(is.na(column) | column == "" | grepl("unclassified|uncultured|unknown", column, ignore.case = TRUE)))
+  unclassified <- sum(is.na(column) | column == "" | grepl("unclassified|uncultured|unknown", column, ignore.case = TRUE))
+  data.frame(
+    Status = c("Classified", "Unclassified"),
+    Count = c(classified, unclassified),
+    Percent = round(c(classified, unclassified) / (classified + unclassified) * 100, 2)
+  )
+}
+
+# Get data
+family_status <- get_classification_status(tax_df$Family)
+genus_status <- get_classification_status(tax_df$Genus)
+species_status <- get_classification_status(tax_df$Species)
+
+# Pie chart for Genus
+ggplot(genus_status, aes(x = "", y = Count, fill = Status)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  labs(title = "Genus-level Classification of ASVs", fill = "") +
+  theme_void() +
+  geom_text(aes(label = paste0(Percent, "%")), 
+            position = position_stack(vjust = 0.5), color = "white", size = 5) +
+  scale_fill_manual(values = c("Classified" = "#1b9e77", "Unclassified" = "#d95f02"))
+
+# Pie chart for Species
+ggplot(species_status, aes(x = "", y = Count, fill = Status)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  labs(title = "Species-level Classification of ASVs", fill = "") +
+  theme_void() +
+  geom_text(aes(label = paste0(Percent, "%")), 
+            position = position_stack(vjust = 0.5), color = "white", size = 5) +
+  scale_fill_manual(values = c("Classified" = "#1b9e77", "Unclassified" = "#d95f02"))
+
+
+
+ggplot(family_status, aes(x = "", y = Count, fill = Status)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  labs(title = "Family-level Classification of ASVs", fill = "") +
+  theme_void() +
+  geom_text(aes(label = paste0(Percent, "%")), 
+            position = position_stack(vjust = 0.5), color = "white", size = 5) +
+  scale_fill_manual(values = c("Classified" = "#1b9e77", "Unclassified" = "#d95f02"))
+
+
+
+
+
+```
+```{r}
+#BIf san check at Fam level:
+
+# 1. Agglomerate taxa at Family level
+ps_family_testbif <- tax_glom(physeq_MS, taxrank = "Family", NArm = TRUE)  # NArm = TRUE by default [web:142][web:148]
+
+# 2. Convert counts to relative abundances per sample
+ps_family_reltestbif <- transform_sample_counts(ps_family_testbif, function(x) x / sum(x)) 
+fam_rel_df_bif <- psmelt(ps_family_reltestbif) 
+
+fam_rel_df_bif <- fam_rel_df_bif[fam_rel_df_bif$Family == "Bifidobacteriaceae",]
+
+
+ps_family_testbif
+
+
+
+ps_family_testbif_f <- tax_glom(physeq_MS, taxrank = "Family", NArm = FALSE)  # NArm = TRUE by default [web:142][web:148]
+
+# 2. Convert counts to relative abundances per sample
+ps_family_reltestbif_f <- transform_sample_counts(ps_family_testbif_f, function(x) x / sum(x)) 
+fam_rel_df_bif_f <- psmelt(ps_family_reltestbif_f) 
+
+fam_rel_df_bif_ff <- fam_rel_df_bif_f[fam_rel_df_bif_f$Family == "Bifidobacteriaceae",]
+
+
+fam_rel_df_bif
+fam_rel_df_bif_ff
+```
+```{r}
+ps_family_testbif <- tax_glom(physeq_MS, taxrank = "Family", NArm = TRUE)  # NArm = TRUE by default [web:142][web:148]
+ps_family_testbif2 <- tax_glom(physeq_MS, taxrank = "Family", NArm = FALSE)  # NArm = TRUE by default [web:142][web:148]
+ps_family_testbif #48
+ps_family_testbif2#55
+physeq_MS#613
+
+#SAnity check - noticed that Tax glom Narm False differs between here and the HMP2 dataset 
+# Seems like this has to da with the upstream taxonomy - ie seems like we get a different NA if something has diff order but same NA family - wherease in the HMP2 dataset everything has 
+tax_df <- as.data.frame(tax_table(physeq_MS))
+na_family <- tax_df[is.na(tax_df$Family), ]
+na_family
+
+table(is.na(tax_table(physeq_MS)[, "Family"]))
+
+unique_na_groups <- unique(na_family[, c("Kingdom","Phylum", "Class", "Order")])
+nrow(unique_na_groups)
+```
+
+```{r}
+# 1. Agglomerate taxa at Family level
+ps_family_testprev <- tax_glom(physeq_MS, taxrank = "Family", NArm = TRUE)  # NArm = TRUE by default [web:142][web:148]
+
+# 2. Convert counts to relative abundances per sample
+ps_family_reltestprev <- transform_sample_counts(ps_family_testprev, function(x) x / sum(x)) 
+
+fam_rel_df_bif <- fam_rel_df_bif[fam_rel_df_bif$Family == "Bifidobacteriaceae",]
+
+
+ps_family_testbif
+
+
+```
+
+
+```{r}
+#PLOT TAXA AT THE FAMILY LEVEL
+
+# Step 1: Agglomerate at Family level
+ps_family <- tax_glom(physeq_MS, taxrank = "Family")
+ps_family2 <- tax_glom(physeq_MS, taxrank = "Family", NArm = FALSE)
+
+ x <- ps_melt(ps_family)
+ y <- ps_melt(physeq_MS)
+ tax_table(ps_family)
+ (otu_table(ps_family))
+ x
+2880/60
+ntaxa(ps_family)          # number of taxa before tax_glom
+ntaxa(physeq_MS) 
+
+
+
+#glom sanity check
+
+ps_family_rel <- transform_sample_counts(ps_family, function(x) x / sum(x))
+df_family <- psmelt(ps_family_rel) %>%
+  select(Sample, OTU, Abundance, Family)
+
+
+
+
+# Transform to relative abundance
+ps_rel <- transform_sample_counts(physeq_MS, function(x) x / sum(x))
+
+# Melt to long format
+df_asv <- psmelt(ps_rel)
+
+# Filter to only Muribaculaceae ASVs
+df_muribaculaceae <- df_asv %>%
+  filter(Family == "Muribaculaceae") %>%
+  select(Sample, OTU, Abundance, Family, Genus)  # keep tax info
+
+df_family
+
+df_muribaculaceae_sum <- df_muribaculaceae %>%
+  group_by(Sample) %>%
+  summarise(
+    total_abundance = sum(Abundance),
+    .groups = "drop"
+  )
+# Step 2: Transform to relative abundance
+ps_relabund <- transform_sample_counts(ps_family, function(x) x / sum(x))
+
+# Step 3: Convert to long format for ggplot
+df_long <- psmelt(ps_relabund)
+
+# Step 4: (Optional) Keep top N families, group rest as "Other"
+top_families <- df_long %>%
+  group_by(Family) %>%
+  summarize(Abundance = sum(Abundance)) %>%
+  top_n(13, Abundance) %>%
+  pull(Family)
+
+df_long <- df_long %>%
+  mutate(Family = ifelse(Family %in% top_families, Family, "Other"))
+
+
+top_families <- df_long %>%
+  group_by(Family) %>%
+  summarize(Abundance = sum(Abundance)) %>%
+  top_n(12, Abundance) %>%
+  pull(Family)
+
+df_long <- df_long %>%
+  mutate(Family = ifelse(Family %in% top_families, Family, "Other"))
+
+
+library(wesanderson)
+
+library(wesanderson)
+
+num_families <- 12  # number of colors you want
+
+library(wesanderson)
+
+
+
+num_colors <- 12
+
+# Get the discrete GrandBudapest1 palette (4 colors)
+base_palette <- wes_palette("AsteroidCity2", 4, type = "discrete")
+
+# Create a color ramp function to interpolate colors
+color_ramp_func <- colorRampPalette(base_palette)
+
+# Generate 12 colors by interpolation
+gb_colors <- color_ramp_func(num_colors)
+
+print(gb_colors)  # To check the colors
+
+# Use in your plot
+ggplot(df_long, aes(x = Sample, y = Abundance, fill = Family)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ Group, scales = "free_x") +
+  scale_fill_manual(values = gb_colors) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme_bw() +
+  ylab("Relative Abundance (%)") +
+  xlab(NULL) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.text = element_text(face = "italic")
+  )
+
+
+
+```
+
+
+
+
+
+
+
+```{r}
+#plot taxa at the family level 
+
+
+physeq_MS_123_test  <- subset_samples(physeq_MS, Group == "GP1" | Group == "GP2" | Group == "GP3")
+                                        
+                                      
+                                        
+
+plot_data_bifidobacteriaceae <- physeq_MS_123_test %>%
+  tax_fix() %>%
+  tax_transform("compositional", rank = "Family") %>%
+  tax_transform("log2", zero_replace = "halfmin", chain = TRUE) %>%
+  ps_get() %>%
+  ps_otu2samdat("Bifidobacteriaceae") %>% # adds  as sample data!
+  samdat_tbl()
+
+ggplot(plot_data_bifidobacteriaceae, aes(x = Group, y = Bifidobacteriaceae)) +
+  geom_boxplot(width = 0.5, colour = "grey35") +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  scale_y_continuous(
+    breaks = log2(1 / 2^(0:13)),
+    labels = function(x) paste0(100 * round(2^x, digits = 5), "%"),
+    limits = c(log2(0.000005), log2(0.04))
+ ) +
+   theme_bw()
+
+```
+
+```{r}
+#RUN DESEQ2
+library(DESeq2)
+
+ 
+#Running DESEQ2 at the family level #NOT USING rarefied PS object 
+ps_family <- tax_glom(physeq_MS, taxrank = "Family")
+
+
+
+#phyloseq_to_deseq2 basically gets us to the following line of code: so saves us the hassle of formatting, etc. 
+
+
+
+#Now we can save this as the dds with the following formula 
+
+dds = phyloseq_to_deseq2(ps_family, ~  Experiment + Group )
+
+
+colData(dds) 
+#Can add poscounts #Note this will have some minor effects on the data 
+#dds <- estimateSizeFactors(dds, type = "poscounts")
+
+design(dds)
+dds_deseq_group_fam = DESeq(dds, test="Wald") #default DESEQ2 settings
+
+
+res_test = results(dds_deseq_group_fam, 
+                           contrast = c("Group", "GP3", "GP2"),
+                           test = "Wald")
+
+alpha = 0.05
+sigtab_test = res_test[which(res_test$padj < alpha), ]
+
+#can look these up in the taxonomy.qzv to associate the ASV label with their family 
+
+
+
+```
+
+
+```{r}
+#RESULTS FOR 3 vs. 2 (SC vs. IV)
+sample_data(physeq_MS)
+res_3_v_2_res = results(dds_deseq_group_fam, contrast = c("Group", "GP3", "GP2"))
+res_3_v_2_res_og = results(dds_deseq_group_fam, contrast = c("Group", "GP3", "GP2"))
+
+as.data.frame(results(dds_deseq_group_fam, contrast = c("Group", "GP3", "GP2")))
+
+
+
+#San check to confirm "order is working how I expect" 
+res_3_v_2_res_og <- as.data.frame(res_3_v_2_res_og)
+#23f810c1fea24ba99734ad93ad260818. = 4.844664e-04 padj and 1.11048423	LFC
+#7b28c20e72c6c95b3e604f0849245770 = 7.108637e+02	 base mean and 3.046701e-01	 p-val
+#fdbff060c0adc3184b21540df9bbbee1 = 7.01481338	 LFC and 5.656665e-03 padj
+#a9b24370bdb02a8ee91855de7b8b2813 = 9.2 lfc
+#ORDER BY ADJUSTED P-VALUE
+res_3_v_2_res_ordered = res_3_v_2_res[order(res_3_v_2_res$padj, na.last=NA), ]
+res_3_v_2_res = res_3_v_2_res[order(res_3_v_2_res$padj, na.last=NA), ]
+
+
+res_3_v_2_res_ordered_df = as.data.frame(res_3_v_2_res_ordered)
+#23f810c1fea24ba99734ad93ad260818 = 4.844664e-04 padj and 1.110484233.046701e-01	
+#7b28c20e72c6c95b3e604f0849245770 = 7.108637e+02	and  3.046701e-01	 p-val
+#fdbff060c0adc3184b21540df9bbbee1 = 7.014813 LFC and 5.656665e-03 adj
+
+#SET ALPHA AT 0.05
+alpha = 0.05
+
+
+
+#SIGNIFICANT FAMILIES TABLE 
+#Absolute LFC > 1 and < 0.05 adj p-value 
+
+sigtable_3_v_2 <- res_3_v_2_res[ res_3_v_2_res$padj < alpha & abs(res_3_v_2_res$log2FoldChange) > 1,]
+
+as.data.frame(sigtable_3_v_2)
+#fdbff060c0adc3184b21540df9bbbee1 = 7.014813 LFC and 5.656665e-03 adj
+
+
+
+
+
+
+#JOIN FOR 
+sigtable_3_v_2_df <- cbind(as(sigtable_3_v_2, "data.frame"), as(tax_table(ps_family)[rownames(sigtable_3_v_2), ], "matrix"))
+
+#san check 
+#23f810c1fea24ba99734ad93ad260818	 = 1.110484 LFC = Muribaculaceae
+#a9b24370bdb02a8ee91855de7b8b2813 =  = Bif  = 9.2 LFC
+
+#ALL FAMILIES TABLE
+res_3_v_2_res_df <- cbind(as(res_3_v_2_res, "data.frame"), as(tax_table(ps_family)[rownames(res_3_v_2_res), ], "matrix"))
+
+table_test <- tax_table(physeq_MS)
+table_testbif = table_test[rownames(table_test) == "a9b24370bdb02a8ee91855de7b8b2813", ]
+table_testmur = table_test[rownames(table_test) == "23f810c1fea24ba99734ad93ad260818", ]
+
+
+res_3_v_2_res_df_sig <- res_3_v_2_res_df[ res_3_v_2_res_df$padj < alpha & abs(res_3_v_2_res_df$log2FoldChange) > 1,]
+
+
+table_test
+library(EnhancedVolcano)
+
+summary(res_3_v_2_res_df$padj)
+
+
+
+
+# Remove rows with NA padj values
+res_3_v_2_res_df <- res_3_v_2_res_df[!is.na(res_3_v_2_res_df$padj), ]
+
+# Ensure unique rownames (EnhancedVolcano uses rownames for matching)
+rownames(res_3_v_2_res_df) <- make.unique(res_3_v_2_res_df$Family)
+
+# 1. Define colors with simplified nested ifelse
+keyvals_3_v_2 <- ifelse(
+  res_3_v_2_res_df$log2FoldChange > 1 & res_3_v_2_res_df$padj < 0.05, '#A29FDD',
+  ifelse(
+    res_3_v_2_res_df$log2FoldChange < -1 & res_3_v_2_res_df$padj < 0.05, '#008080',
+    'grey'  # everything else is grey
+  )
+)
+
+# 2. Replace NAs with grey (not black, since that's our neutral color)
+keyvals_3_v_2[is.na(keyvals_3_v_2)] <- 'grey'
+
+# 3. Name your vector entries to correspond to legend labels
+names(keyvals_3_v_2) <- ifelse(
+  keyvals_3_v_2 == '#A29FDD', 'Enriched in BCG-SC Neonates',
+  ifelse(keyvals_3_v_2 == '#008080', 'Enriched in BCG-IV Neonates',
+    'Not significant'  # grey points
+  )
+)
+
+# 4. Set rownames (important)
+rownames(res_3_v_2_res_df) <- make.unique(as.character(res_3_v_2_res_df$Family))
+volcano_3_2 <- EnhancedVolcano(
+  res_3_v_2_res_df,
+  lab = rep('', nrow(res_3_v_2_res_df)),
+  x = 'log2FoldChange',
+  y = 'padj',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  colCustom = keyvals_3_v_2,
+  legendLabels = c('Not significant', 'Enriched in BCG-SC Neonates', 'Enriched in BCG-IV Neonates'),
+  legendPosition = 'right',
+  legendLabSize = 15,
+  legendIconSize = 4,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 4.5,
+  labSize = 10,
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = '',
+  xlim = c(-5, 50), 
+  ylim = c(0,80)# 👈 Make x-axis wider
+)
+
+
+volcano_3_2
+# Export as high-resolution TIFF
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/volc_3_2.tiff", width = 10, height = 6, units = "in", res = 600, compression = "lzw")
+print(volcano_3_2)
+dev.off()
+
+
+
+
+#Ordered LFC visualization
+
+library(ggplot2)
+library(dplyr)
+
+# Assuming your DESeq2 results are in `res_3_v_2_res_df`
+# Step 1: Create a color column based on significance
+res_3_v_2_res_df <- res_3_v_2_res_df %>%
+  mutate(color_group = case_when(
+    log2FoldChange > 1 & padj < 0.05 ~ "Enriched in BCG-SC Neonates",
+    log2FoldChange < -1 & padj < 0.05 ~ "Enriched in BCG-IV Neonates ",
+    TRUE ~ "Not significant"
+  ))
+
+# Step 2: Set colors
+custom_colors <- c(
+  "Enriched in BCG-SC Neonates" = "#A29FDD",
+  "Enriched in BCG-IV Neonates" = "#008080",
+  "Not significant" = "grey"
+)
+
+# Step 3: Order Family by log2FoldChange for plotting
+res_3_v_2_res_df <- res_3_v_2_res_df %>%
+  arrange(desc(log2FoldChange)) %>%
+  mutate(Family = factor(Family, levels = unique(Family)))
+
+# Step 4: Create plot
+library(forcats)
+
+
+
+library(forcats)
+
+library(ggplot2)
+library(forcats)
+
+library(ggplot2)
+library(forcats)
+
+
+LFC_32 <- ggplot(res_3_v_2_res_df, aes(x = log2FoldChange,
+                                      y = fct_reorder(Family, log2FoldChange), 
+                                      color = color_group)) +
+  geom_point(size = 7, alpha = 0.9) +                
+  scale_color_manual(values = custom_colors) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),                
+    axis.line = element_line(color = "black"),   
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 18, hjust = 1, face = "italic"),
+    axis.title.x = element_text(size = 22),     # bigger x-axis title
+    axis.title.y = element_text(size = 22),     # add y-axis title size
+    legend.title = element_blank(),
+    legend.text = element_text(size = 22)
+  ) +
+  labs(
+    x = expression(Log[2] * " Fold Change"),  # capital L in Log2
+    y = "Family"                              # add y-axis title
+  )
+
+
+
+
+# Export as high-resolution TIFF
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/LFC_32.tiff", width = 15, height = 10, units = "in", res = 600, compression = "lzw")
+print(LFC_32)
+dev.off()
+
+
+
+
+
+#Sanity check to ensure "cbind" worked above 
+
+res_3_v_2_res
+res_3_v_2_res_df
+tax_table(physeq_MS)
+```
+
+```{r}
+#RESULTS FOR 3 vs. 1 (SC vs. CTRL PUPS)
+
+
+res_3_v_1_res = results(dds_deseq_group_fam, contrast = c("Group", "GP3", "GP1"))
+
+res_3_v_1_res_test = res_3_v_1_res[which(res_3_v_1_res$padj < alpha), ]
+
+#ORDER BY ADJUSTED P-VALUE
+res_3_v_1_res = res_3_v_1_res[order(res_3_v_1_res$padj, na.last=NA), ]
+
+#SET ALPHA AT 0.05
+alpha = 0.05
+
+
+
+#SIGNIFICANT FAMILIES TABLE 
+#Absolute LFC = 1 and < 0.05 adj p-value 
+
+sigtable_3_v_1 <- res_3_v_1_res[ res_3_v_1_res$padj < alpha &  abs(res_3_v_1_res$log2FoldChange) > 1,]
+
+# Assuming your DESeq2 results are stored in an object called 'res'
+res_df <- as.data.frame(res_3_v_1_res)
+#JOIN FOR 
+sigtable_3_v_1_df <- cbind(as(sigtable_3_v_1, "data.frame"), as(tax_table(ps_family)[rownames(sigtable_3_v_1), ], "matrix"))
+
+
+#ALL FAMILIES TABLE
+res_3_v_1_res_df <- cbind(as(res_3_v_1_res, "data.frame"), as(tax_table(ps_family)[rownames(res_3_v_1_res), ], "matrix"))
+
+library(EnhancedVolcano)
+
+summary(res_3_v_1_res_df$padj)
+
+
+
+
+# Remove rows with NA padj values
+res_3_v_1_res_df <- res_3_v_1_res_df[!is.na(res_3_v_1_res_df$padj), ]
+
+# Ensure unique rownames (EnhancedVolcano uses rownames for matching)
+rownames(res_3_v_1_res_df) <- make.unique(res_3_v_1_res_df$Family)
+
+# 1. Define colors with simplified nested ifelse
+keyvals_3_v_1 <- ifelse(
+  res_3_v_1_res_df$log2FoldChange > 1 & res_3_v_1_res_df$padj < 0.05, "#A29FDD",
+  ifelse(
+    res_3_v_1_res_df$log2FoldChange < -1 & res_3_v_1_res_df$padj < 0.05, 'black',
+    'lightgrey'  # everything else is grey
+  )
+)
+
+# 2. Replace NAs with grey (not black, since that's our neutral color)
+keyvals_3_v_1[is.na(keyvals_3_v_1)] <- 'grey'
+
+# 3. Name your vector entries to correspond to legend labels
+names(keyvals_3_v_1) <- ifelse(
+  keyvals_3_v_1 == "#A29FDD", 'Enriched in BCG-SC Neonates',
+  ifelse(keyvals_3_v_1 == 'black', 'Enriched in Control',
+    'Not significant'  # grey points
+  )
+)
+
+# 4. Set rownames (important)
+rownames(res_3_v_1_res_df) <- make.unique(as.character(res_3_v_1_res_df$Family))
+
+# 5. Plot with EnhancedVolcano
+volcano31 <- EnhancedVolcano(
+  res_3_v_1_res_df,
+  lab = res_3_v_1_res_df$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+#  pCutoff = 0.05,
+  FCcutoff = 1,
+  colCustom = keyvals_3_v_1,
+  legendLabels = c('Not significant', 'Enriched in BCG-SC Neonates', 'Enriched in Control Neonates'),
+  legendPosition = 'right',
+  legendLabSize = 15,
+  legendIconSize = 4,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 4.5,
+  labSize = 0,      # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = ''
+)
+
+
+
+volcano31
+# Export as high-resolution TIFF
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/volc_3_1.tiff", width = 10, height = 6, units = "in", res = 600, compression = "lzw")
+print(volcano31)
+dev.off()
+
+
+
+#Ordered LFC visualization
+
+library(ggplot2)
+library(dplyr)
+
+# Assuming your DESeq2 results are in `res_3_v_2_res_df`
+
+# Step 1: Create a color column based on significance
+res_3_v_1_res_df <- res_3_v_1_res_df %>%
+  mutate(color_group = case_when(
+    log2FoldChange > 0 & padj < 0.05 ~ "Enriched in BCG Pups-SC",
+    log2FoldChange < 0 & padj < 0.05 ~ "Enriched in Control",
+    TRUE ~ "Not significant"
+  ))
+
+# Step 2: Set colors
+custom_colors_31 <- c(
+  "Enriched in BCG Pups-SC" = "#A29FDD",
+  "Enriched in Control" = "black",
+  "Not significant" = "grey"
+)
+
+# Step 3: Order Family by log2FoldChange for plotting
+res_3_v_1_res_df <- res_3_v_1_res_df %>%
+  arrange(desc(log2FoldChange)) %>%
+  mutate(Family = factor(Family, levels = unique(Family)))
+
+
+
+
+# Step 4: Create plot
+LFC31 <- ggplot(res_3_v_1_res_df, aes(x = log2FoldChange,
+                                      y = fct_reorder(Family, log2FoldChange), 
+                                      color = color_group)) +
+  geom_point(size = 7, alpha = 0.9) +                
+  scale_color_manual(values = custom_colors_31) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),                
+    axis.line = element_line(color = "black"),   
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 18, hjust = 1, face = "italic"),
+    axis.title.x = element_text(size = 22),     # bigger x-axis title
+    axis.title.y = element_text(size = 22),     # add y-axis title size
+    legend.title = element_blank(),
+    legend.text = element_text(size = 22)
+  ) +
+  labs(
+    x = expression(Log[2] * " Fold Change"),  # capital L in Log2
+    y = "Family"                              # add y-axis title
+  )
+
+
+
+# Export as high-resolution TIFF
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/LFC_31.tiff", width = 15, height = 10, units = "in", res = 600, compression = "lzw")
+print(LFC31)
+dev.off()
+
+
+
+
+```
+
+```{r}
+#Export Tables with LFC, P-value and Bacterial Family : SC vs. Control
+
+res_3_v_1_res_df_prev_select  <- res_3_v_1_res_df %>% 
+  select(Family, padj,log2FoldChange)
+
+write.csv(res_3_v_1_res_df_prev_select, "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/3_1_LFCtable.csv")
+
+
+#Export Tables with LFC, P-value and Bacterial Family : SC vs. IV
+
+res_3_v_2_res_df_prev_select  <- res_3_v_2_res_df %>% 
+  select(Family, padj,log2FoldChange)
+
+write.csv(res_3_v_2_res_df_prev_select, "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/3_2_LFCtable.csv")
+
+```
+
+
+
+
+
+
+
+```{r}
+#ONLY PLOT USING A TAX_GLOMMED FAMILY LEVEL PS OBJECT
+
+plot_family_abundance <- function(physeq_obj, family_name, group_var = "group") {
+  if (!(group_var %in% colnames(sample_data(physeq_obj)))) {
+    stop(paste("Variable", group_var, "not found in sample_data."))
+  }
+  if (!("Experiment" %in% colnames(sample_data(physeq_obj)))) {
+    stop("Variable 'Experiment' not found in sample_data.")
+  }
+
+  physeq_rel <- microbiome::transform(physeq_obj, "compositional")
+  df <- psmelt(physeq_rel)
+  df_family <- df %>% filter(Family == family_name)
+
+  df_family[[group_var]] <- factor(df_family[[group_var]],
+                                   levels = c("GP1", "GP2", "GP3"),
+                                   labels = c("Control", "BCG-IV", "BCG-SC"))
+
+  group_colors <- c(
+    "Control" = "#B0B0B0",
+    "BCG-IV"  = "#008080",
+    "BCG-SC"  = "#A29FDD"
+  )
+
+  ggplot(df_family, aes_string(x = group_var, y = "Abundance", fill = group_var)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.85, color = "black", size = 1.2) +   # bigger outline
+    geom_jitter(aes(shape = Experiment), color = "black", width = 0.2, size = 1, alpha = 0.85) +  # bigger points
+    scale_y_continuous(labels = scales::percent_format()) +
+    scale_fill_manual(values = group_colors) +
+    labs(
+      title = bquote(italic(.(family_name))),
+      x = NULL,
+      y = "Relative Abundance",
+      shape = "Experiment"
+    ) +
+    guides(fill = "none") +
+    theme_minimal(base_size = 22) +   # bigger text everywhere
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(color = "black")
+    )
+}
+
+
+
+
+
+sigtable_3_v_1_df
+sigtable_3_v_2_df
+
+ps_family_123 <- subset_samples(ps_family, Group == "GP1" | Group == "GP2" | Group == "GP3")
+                                  
+
+#DA 3vs.1
+prev_plot <- plot_family_abundance(ps_family_123, family_name = "Prevotellaceae", group_var = "Group")
+tannerellaceae_plot <- plot_family_abundance(ps_family_123, family_name = "Tannerellaceae", group_var = "Group")
+erysiplot_plot <- plot_family_abundance(ps_family_123, family_name = "Erysipelatoclostridiaceae", group_var = "Group")
+clostrid_plot <- plot_family_abundance(ps_family_123, family_name = "Clostridiaceae", group_var = "Group")
+sutterell_plot <- plot_family_abundance(ps_family_123, family_name = "Sutterellaceae", group_var = "Group")
+lachno_plot <- plot_family_abundance(ps_family_123, family_name = "Lachnospiraceae", group_var = "Group")
+
+#EXPORT####
+prev_plot
+# Export as high-resolution TIFF
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/prevotellaceae.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(prev_plot)
+dev.off()
+
+
+tannerellaceae_plot
+# Export as high-resolution TIFF
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/tannerellaceae.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(tannerellaceae_plot)
+dev.off()
+
+erysiplot_plot
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/erysipelatoclostridiaceae.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(erysiplot_plot)
+dev.off()
+
+
+tax_table(ps_family_123)
+plot_family_abundance2
+#DA 3vs.2
+tannerellaceae_plot <- plot_family_abundance(ps_family_123, family_name = "Tannerellaceae", group_var = "Group")
+desulf_plot <- plot_family_abundance(ps_family_123, family_name = "Desulfovibrionaceae", group_var = "Group")
+rik_plot  <-  plot_family_abundance(ps_family_123, family_name = "Rikenellaceae", group_var = "Group")
+bif_plot <- plot_family_abundance(ps_family_123, family_name = "Bifidobacteriaceae", group_var = "Group")
+prev_plot <- plot_family_abundance(ps_family_123, family_name = "Prevotellaceae", group_var = "Group")
+atop_plot <- plot_family_abundance(ps_family_123, family_name = "Atopobiaceae", group_var = "Group")
+achole_plot <-  plot_family_abundance(ps_family_123, family_name = "Acholeplasmataceae", group_var = "Group")
+muribac_plot <-  plot_family_abundance(ps_family_123, family_name = "Muribaculaceae", group_var = "Group")
+rf39_plot <-  plot_family_abundance(ps_family_123, family_name = "RF39", group_var = "Group")
+akk_plot <-  plot_family_abundance(ps_family_123, family_name = "Akkermansiaceae", group_var = "Group")
+pepto_plot <-  plot_family_abundance(ps_family_123, family_name = "Peptococcaceae", group_var = "Group")
+egg_plo <-  plot_family_abundance(ps_family_123, family_name = "Eggerthellaceae", group_var = "Group")
+
+
+plot_family_abundance2(ps_family_123, family_name = "Bifidobacteriaceae", group_var = "Group")$data
+
+experiment
+#EXPORT####
+desulf_plot
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/Desulfovibrioceae.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(desulf_plot)
+dev.off()
+
+
+rik_plot
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/Rikenellaceae.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(rik_plot)
+dev.off()
+
+bif_plot
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/Bifidobacteriaceae.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(bif_plot)
+dev.off()
+
+
+atop_plot
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/Atopobiaceae.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(atop_plot)
+dev.off()
+
+
+
+achole_plot
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/Acholeplasmataceae.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(achole_plot)
+dev.off()
+
+
+muribac_plot
+tiff("/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/muribac.tiff", width = 10, height = 8, units = "in", res = 600, compression = "lzw")
+print(muribac_plot)
+dev.off()
+
+```
+```{r}
+#JUST GP1 vs. GP3 (Control vs SC)
+
+#ONLY PLOT USING A TAX_GLOMMED FAMILY LEVEL PS OBJECT
+plot_family_abundance_GP1_GP3 <- function(
+  physeq_obj,
+  family_name,
+  group_var = "Group"
+) {
+  
+  # Confirm that the requested grouping variable exists
+  if (!(group_var %in% colnames(sample_data(physeq_obj)))) {
+    stop(
+      paste(
+        "Variable", group_var,
+        "not found in sample_data."
+      )
+    )
+  }
+  
+  # Confirm that Experiment exists for point shapes
+  if (!("Experiment" %in% colnames(sample_data(physeq_obj)))) {
+    stop("Variable 'Experiment' not found in sample_data.")
+  }
+  
+  # Convert each sample to relative abundance
+  physeq_rel <- microbiome::transform(
+    physeq_obj,
+    "compositional"
+  )
+  
+  # Melt phyloseq object and retain only:
+  # 1. requested family
+  # 2. GP1 (Control) and GP3 (BCG-SC)
+  df_family <- psmelt(physeq_rel) %>%
+    dplyr::filter(
+      Family == family_name,
+      .data[[group_var]] %in% c("GP1", "GP3")
+    )
+  
+  # Stop early if the requested family does not occur
+  if (nrow(df_family) == 0) {
+    stop(
+      paste(
+        "No rows found for family",
+        family_name,
+        "within GP1 and GP3."
+      )
+    )
+  }
+  
+  # Set x-axis ordering and display labels
+  df_family[[group_var]] <- factor(
+    df_family[[group_var]],
+    levels = c("GP1", "GP3"),
+    labels = c("Control", "BCG-SC")
+  )
+  
+  # Same palette as your original function
+  group_colors <- c(
+    "Control" = "#B0B0B0",
+    "BCG-SC"  = "#A29FDD"
+  )
+  
+  ggplot(
+    df_family,
+    aes_string(
+      x = group_var,
+      y = "Abundance",
+      fill = group_var
+    )
+  ) +
+    geom_boxplot(
+      outlier.shape = NA,
+      alpha = 0.85,
+      color = "black",
+      size = 1.2
+    ) +
+    geom_jitter(
+      aes(shape = Experiment),
+      color = "black",
+      width = 0.2,
+      size = 4,
+      alpha = 0.85
+    ) +
+    scale_y_continuous(
+      labels = scales::percent_format()
+    ) +
+    scale_fill_manual(
+      values = group_colors
+    ) +
+    labs(
+      title = bquote(italic(.(family_name))),
+      x = NULL,
+      y = "Relative Abundance",
+      shape = "Experiment"
+    ) +
+    guides(fill = "none") +
+    theme_minimal(base_size = 22) +
+    theme(
+      axis.text.x = element_text(
+        angle = 45,
+        hjust = 1
+      ),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(color = "black")
+    )
+}
+
+
+
+prev_plot_3_1 <- plot_family_abundance_GP1_GP3(ps_family_123, family_name = "Prevotellaceae", group_var = "Group")
+prev_plot_3_1
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/prev_3_1.png",
+  plot = prev_plot_3_1,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+tannerellaceae_plot_3_1 <- plot_family_abundance_GP1_GP3(ps_family_123, family_name = "Tannerellaceae", group_var = "Group")
+
+tannerellaceae_plot_3_1
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/tannerell_3_1.png",
+  plot = tannerellaceae_plot_3_1,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+
+
+erysiplot_plot_3_1 <- plot_family_abundance_GP1_GP3(ps_family_123, family_name = "Erysipelatoclostridiaceae", group_var = "Group")
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/erysi_3_1.png",
+  plot = erysiplot_plot_3_1,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+
+
+```
+```{r}
+prevotellaceae_GP1_GP3 <- ps_family_123 %>%
+  subset_samples(Group %in% c("GP1", "GP3")) %>%
+  tax_glom(taxrank = "Family") %>%
+  transform_sample_counts(function(x) x / sum(x)) %>%
+  subset_taxa(Family == "Bifidobacteriaceae") %>%
+  psmelt() %>%
+  select(Sample, Group, Experiment, Family, Abundance)
+
+achole_GP1_GP3 <- ps_family_123 %>%
+  subset_samples(Group %in% c("GP2", "GP3")) %>%
+  tax_glom(taxrank = "Family") %>%
+  transform_sample_counts(function(x) x / sum(x)) %>%
+  subset_taxa(Family == "Acholeplasmataceae") %>%
+  psmelt() %>%
+  select(Sample, Group, Experiment, Family, Abundance)
+
+prevotellaceae_GP1_GP3
+```
+
+```{r}
+#JUST GP3 vs. GP2 (SC vs IV)
+plot_family_abundance_GP3_GP2 <- function(
+  physeq_obj,
+  family_name,
+  group_var = "Group"
+) {
+  
+  # Confirm that the requested grouping variable exists
+  if (!(group_var %in% colnames(sample_data(physeq_obj)))) {
+    stop(
+      paste(
+        "Variable", group_var,
+        "not found in sample_data."
+      )
+    )
+  }
+  
+  # Confirm that Experiment exists for point shapes
+  if (!("Experiment" %in% colnames(sample_data(physeq_obj)))) {
+    stop("Variable 'Experiment' not found in sample_data.")
+  }
+  
+  # Convert each sample to relative abundance
+  physeq_rel <- microbiome::transform(
+    physeq_obj,
+    "compositional"
+  )
+  
+  # Melt phyloseq object and retain only:
+  # 1. requested family
+  # 2. GP3 (BCG-SC) and GP2 (BCG-IV)
+  df_family <- psmelt(physeq_rel) %>%
+    dplyr::filter(
+      Family == family_name,
+      .data[[group_var]] %in% c("GP2", "GP3")
+    )
+  
+  # Stop early if the requested family does not occur
+  if (nrow(df_family) == 0) {
+    stop(
+      paste(
+        "No rows found for family",
+        family_name,
+        "within GP2 and GP3."
+      )
+    )
+  }
+  
+  # Set x-axis ordering and display labels
+  df_family[[group_var]] <- factor(
+    df_family[[group_var]],
+    levels = c("GP2", "GP3"),
+    labels = c("BCG-IV", "BCG-SC")
+  )
+  
+  # Same palette as your original function
+  group_colors <- c(
+    "BCG-IV" = "#008080",
+    "BCG-SC"  = "#A29FDD"
+  )
+  
+  ggplot(
+    df_family,
+    aes_string(
+      x = group_var,
+      y = "Abundance",
+      fill = group_var
+    )
+  ) +
+    geom_boxplot(
+      outlier.shape = NA,
+      alpha = 0.85,
+      color = "black",
+      size = 1.2
+    ) +
+    geom_jitter(
+      aes(shape = Experiment),
+      color = "black",
+      width = 0.2,
+      size = 4,
+      alpha = 0.85
+    ) +
+    scale_y_continuous(
+      labels = scales::percent_format()
+    ) +
+    scale_fill_manual(
+      values = group_colors
+    ) +
+    labs(
+      title = bquote(italic(.(family_name))),
+      x = NULL,
+      y = "Relative Abundance",
+      shape = "Experiment"
+    ) +
+    guides(fill = "none") +
+    theme_minimal(base_size = 22) +
+    theme(
+      axis.text.x = element_text(
+        angle = 45,
+        hjust = 1
+      ),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(color = "black")
+    )
+}
+
+
+tannerellaceae_plot_3_2 <- plot_family_abundance_GP3_GP2(ps_family_123, family_name = "Tannerellaceae", group_var = "Group")
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/tan_3_2.png",
+  plot = tannerellaceae_plot_3_2,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+
+
+
+
+desulf_plot_3_2 <- plot_family_abundance_GP3_GP2(ps_family_123, family_name = "Desulfovibrionaceae", group_var = "Group")
+
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/desulf_3_2.png",
+  plot = desulf_plot_3_2,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+
+
+rik_plot_3_2  <-  plot_family_abundance_GP3_GP2(ps_family_123, family_name = "Rikenellaceae", group_var = "Group")
+
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/rik_3_2.png",
+  plot = rik_plot_3_2,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+
+bif_plot_3_2 <- plot_family_abundance_GP3_GP2(ps_family_123, family_name = "Bifidobacteriaceae", group_var = "Group")
+
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/bif_3_2.png",
+  plot = bif_plot_3_2,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+prev_plot_3_2 <- plot_family_abundance_GP3_GP2(ps_family_123, family_name = "Prevotellaceae", group_var = "Group")
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/prev_3_2.png",
+  plot = prev_plot_3_2,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+atop_plot_3_2 <- plot_family_abundance_GP3_GP2(ps_family_123, family_name = "Atopobiaceae", group_var = "Group")
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/atop_3_2.png",
+  plot = atop_plot_3_2,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+achole_plot_3_2 <-  plot_family_abundance_GP3_GP2(ps_family_123, family_name = "Acholeplasmataceae", group_var = "Group")
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/achole_3_2.png",
+  plot = achole_plot_3_2,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+
+
+
+muribac_plot_3_2 <-  plot_family_abundance_GP3_GP2(ps_family_123, family_name = "Muribaculaceae", group_var = "Group")
+
+ggsave(
+  filename = "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/P005_02/revisions/deseq_figs/revised_bar_plots/muribac_3_2.png",
+  plot = muribac_plot_3_2,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+```
+
+
+```{r}
+
+#Same as above but also returns a dataframe
+plot_family_abundance2 <- function(physeq_obj, family_name, group_var = "group") {
+  # Ensure group_var and 'Experiment' exist in sample_data
+  if (!(group_var %in% colnames(sample_data(physeq_obj)))) {
+    stop(paste("Variable", group_var, "not found in sample_data."))
+  }
+  if (!("Experiment" %in% colnames(sample_data(physeq_obj)))) {
+    stop("Variable 'Experiment' not found in sample_data.")
+  }
+
+  # Transform to relative abundance
+  physeq_rel <- microbiome::transform(physeq_obj, "compositional")
+
+  # Melt to long format
+  df <- psmelt(physeq_rel)
+
+  # Filter for the specified family
+  df_family <- df %>% filter(Family == family_name)
+
+  # Relabel group variable
+  df_family[[group_var]] <- factor(df_family[[group_var]],
+                                   levels = c("GP1", "GP2", "GP3"),
+                                   labels = c("Control", "BCG-IV", "BCG-SC"))
+
+  # Define colors
+  group_colors <- c(
+    "Control" = "#B0B0B0",   # lighter grey
+    "BCG-IV"  = "#008080",   # teal
+    "BCG-SC"  = "#A29FDD"    # lighter lavender
+  )
+
+  # Generate the plot
+  p <- ggplot(df_family, aes_string(x = group_var, y = "Abundance", fill = group_var)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.85, color = "black") +
+    geom_jitter(aes(shape = Experiment), color = "black", width = 0.2, size = 3, alpha = 0.85) +
+    scale_y_continuous(labels = scales::percent_format()) +
+    scale_fill_manual(values = group_colors) +
+    labs(
+      title = NULL,
+      x = NULL,
+      y = "Relative Abundance",
+      shape = "Experiment"
+    ) +
+    guides(fill = "none") +
+    theme_minimal(base_size = 13) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(color = "black")
+    )
+
+  # Return both the plot and the filtered dataframe
+  return(list(
+    plot = p,
+    data = df_family
+  ))
+}
+
+sample_data(phyloseq.MS.fix)
+
+
+```
+
+```{r}
+
+res_3_v_2_res_df_prev_select  <- res_3_v_2_res_df %>% 
+  select(Family, padj,log2FoldChange)
+
+write.csv(res_3_v_2_res_df_prev_select, "/Users/anshulsinha/Desktop/microbiome_center/projects/005_mina_project_06_2025/qiime2/figures/3_2_LFCtable.csv")
+
+```
+
+```{r}
+
+#san check to the same but put false for NArm
+#also as a check - I can convert to factors first 
+
+
+ps_family_false <- tax_glom(physeq_MS, taxrank = "Family", NArm = FALSE)
+
+
+sd <- sample_data(ps_family_false)
+
+#covert to factors 
+sd$Experiment <- factor(sd$Experiment)
+sd$Group      <- factor(sd$Group)
+
+sample_data(ps_family_false) <- sd
+
+
+
+#phyloseq_to_deseq2 basically gets us to the following line of code: so saves us the hassle of formatting, etc. 
+# DESeqDataSetFromMatrix(countData=raw_counts_lb_matrix, colData=sample_mapping_lb, design = ~ mouseID_n + Condition1)
+
+
+
+#Now we can save this as the dds with the following formula 
+
+dds_false = phyloseq_to_deseq2(ps_family_false, ~  Experiment + Group )
+
+
+colData(dds_false) 
+#Can add poscounts 
+#dds <- estimateSizeFactors(dds, type = "poscounts")
+library(DESeq2)
+
+dds_deseq_group_fam_false = DESeq(dds_false, test="Wald") #default DESEQ2 settings
+
+
+
+#RESULTS FOR 3 vs. 2 (SC vs. IV)
+sample_data(physeq_MS)
+res_3_v_2_res_false =results(dds_deseq_group_fam_false, contrast = c("Group", "GP3", "GP2"))
+
+
+#San check to confirm "order is working how I expect" 
+res_3_v_2_res_og_false <- as.data.frame(res_3_v_2_res_false)
+
+sigtable_3_v_2_df
+res_3_v_2_res_og_false
+
+#a9b24370bdb02a8ee91855de7b8b2813	LFC=	9.21729336	and padj=	4.160436e-10 compared to #a9b24370bdb02a8ee91855de7b8b2813 = 9.2 lfc last time
+
+
+```
+
+```{r}
+#Doing this for each experiment separately 
+#Experiment. B
+experiment_B <- subset_samples(physeq_MS, Experiment == "B")
+
+ 
+#Running DESEQ2 at the family level #NOT USING rarefied PS object 
+
+
+
+ps_family_B <- tax_glom(experiment_B, taxrank = "Family", NArm = TRUE)
+
+ps_family_B_prune <- prune_taxa(taxa_sums(ps_family_B) > 0, ps_family_B)
+ps_family_B_prune_1_2_3 <- subset_samples(ps_family_B_prune, Group == "GP1" | Group == "GP2" |Group == "GP3" )
+
+#Here, Im going to subset for just GP1, 2, 3. Will give more power since Im losing some sampels by doing experiment-specific 
+
+
+#phyloseq_to_deseq2 basically gets us to the following line of code: so saves us the hassle of formatting, etc. 
+# DESeqDataSetFromMatrix(countData=raw_counts_lb_matrix, colData=sample_mapping_lb, design = ~ mouseID_n + Condition1)
+
+
+
+#Now we can save this as the dds with the following formula 
+
+dds_B = phyloseq_to_deseq2(ps_family_B_prune_1_2_3, ~ Group)
+
+
+colData(dds_B) 
+#Can add poscounts #Note this will have some minor effects on the data 
+#dds <- estimateSizeFactors(dds, type = "poscounts")
+
+design(dds_B)
+dds_deseq_group_fam_B = DESeq(dds_B, test="Wald") #default DESEQ2 settings
+
+
+
+```
+
+```{r}
+ps_fam_relabund <- transform_sample_counts(ps_family, function(x) x / sum(x))
+
+# Subset to just Prevotellaceae
+ps_prevotellaceae <- subset_taxa(ps_fam_relabund, Family == "Akkermansiaceae")
+
+# Extract as a dataframe: samples as rows, relative abundance as a column
+prevotellaceae_df <- data.frame(
+  SampleID = sample_names(ps_prevotellaceae),
+  RelAbund_Prevotellaceae = as.numeric(otu_table(ps_prevotellaceae))
+)
+
+sample_df <- data.frame(sample_data(ps_prevotellaceae)) %>%
+  mutate(SampleID = rownames(.))
+
+prevotellaceae_metadata_df <- prevotellaceae_df %>%
+  left_join(sample_df, by = "SampleID")
+```
+
+
+```{r}
+
+
+#GP3 vs. GP1 in Experiment B 
+resultsNames(dds_deseq_group_fam_B)
+
+res_3_v_1_res_B = results(dds_deseq_group_fam_B, contrast = c("Group", "GP3", "GP1"))
+
+#filter out taxa that have NAs (zeroes across all)
+res_3_v_1_res_Bdf <- as.data.frame(res_3_v_1_res_B)
+
+res_3_v_1_res_Bdf_filtered <- res_3_v_1_res_Bdf %>% filter(!is.na(log2FoldChange))
+alpha = 0.05
+
+sigtab_B_test_31 = res_3_v_1_res_B[which(res_3_v_1_res_B$padj < alpha), ]
+
+
+#ORDER BY ADJUSTED P-VALUE
+res_3_v_1_res_B_order = res_3_v_1_res_Bdf_filtered[order(res_3_v_1_res_Bdf_filtered$padj, na.last=NA), ]
+
+#SET ALPHA AT 0.05
+
+
+#SIGNIFICANT FAMILIES TABLE 
+#Absolute LFC = 1 and < 0.05 adj p-value 
+
+sigtable_3_v_1_B <- res_3_v_1_res_B[
+  !is.na(res_3_v_1_res_B$padj) &
+  !is.na(res_3_v_1_res_B$log2FoldChange) &
+  res_3_v_1_res_B$padj < alpha &
+  abs(res_3_v_1_res_B$log2FoldChange) > 1,
+]
+# Assuming your DESeq2 results are stored in an object called 'res'
+res_df <- as.data.frame(res_3_v_1_res)
+#JOIN FOR 
+sigtable_3_v_1_B_df <- cbind(as(sigtable_3_v_1_B, "data.frame"), as(tax_table(ps_family_B_prune_1_2_3)[rownames(sigtable_3_v_1_B), ], "matrix"))
+
+
+#ALL FAMILIES TABLE
+res_3_v_1_res_df_B <- cbind(as(res_3_v_1_res_Bdf, "data.frame"), as(tax_table(ps_family_B_prune_1_2_3)[rownames(res_3_v_1_res_Bdf), ], "matrix"))
+
+library(EnhancedVolcano)
+
+summary(res_3_v_1_res_df$padj)
+
+
+
+
+# Remove rows with NA padj values
+res_3_v_1_res_df_B <- res_3_v_1_res_df_B[!is.na(res_3_v_1_res_df_B$padj), ]
+
+# Ensure unique rownames (EnhancedVolcano uses rownames for matching)
+rownames(res_3_v_1_res_df_B) <- make.unique(res_3_v_1_res_df_B$Family)
+
+# 1. Define colors with simplified nested ifelse
+keyvals_3_v_1_B <- ifelse(
+  res_3_v_1_res_df_B$log2FoldChange > 1 & res_3_v_1_res_df_B$padj < 0.05, "#A29FDD",
+  ifelse(
+    res_3_v_1_res_df_B$log2FoldChange < -1 & res_3_v_1_res_df_B$padj < 0.05, 'black',
+    'lightgrey'  # everything else is grey
+  )
+)
+
+# 2. Replace NAs with grey (not black, since that's our neutral color)
+keyvals_3_v_1_B[is.na(keyvals_3_v_1_B)] <- 'grey'
+
+# 3. Name your vector entries to correspond to legend labels
+names(keyvals_3_v_1_B) <- ifelse(
+  keyvals_3_v_1_B == "#A29FDD", 'Enriched in BCG-SC Neonates',
+  ifelse(keyvals_3_v_1_B == 'black', 'Enriched in Control',
+    'Not significant'  # grey points
+  )
+)
+
+# 4. Set rownames (important)
+rownames(res_3_v_1_res_df_B) <- make.unique(as.character(res_3_v_1_res_df_B$Family))
+
+# 5. Plot with EnhancedVolcano
+volcano31_B <- EnhancedVolcano(
+  res_3_v_1_res_df_B,
+  lab = res_3_v_1_res_df_B$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+ pCutoff = 0.05,
+  FCcutoff = 1,
+  colCustom = keyvals_3_v_1_B,
+  legendLabels = c('Not significant', 'Enriched in BCG-SC Neonates', 'Enriched in Control Neonates'),
+  legendPosition = 'right',
+  legendLabSize = 15,
+  legendIconSize = 4,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 4.5,
+  labSize = 0,      # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = ''
+)
+
+volcano31_B
+EnhancedVolcano(
+  res_3_v_1_res_df_B,
+  lab = res_3_v_1_res_df_B$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  labSize = 3,
+  max.overlaps = Inf,
+  drawConnectors = TRUE,
+  widthConnectors = 0.5,
+  boxedLabels = TRUE
+)
+```
+
+```{r}
+
+#GP3 vs. GP2 in Experiment B 
+resultsNames(dds_deseq_group_fam_B)
+
+res_3_v_2_res_B = results(dds_deseq_group_fam_B, contrast = c("Group", "GP3", "GP2"))
+
+#filter out taxa that have NAs (zeroes across all)
+res_3_v_2_res_Bdf <- as.data.frame(res_3_v_2_res_B)
+
+res_3_v_2_res_Bdf_filtered <- res_3_v_2_res_Bdf %>% filter(!is.na(log2FoldChange))
+alpha = 0.05
+
+sigtab_B_test_32 = res_3_v_2_res_B[which(res_3_v_2_res_B$padj < alpha), ]
+
+
+#ORDER BY ADJUSTED P-VALUE
+res_3_v_2_res_B_order = res_3_v_2_res_Bdf_filtered[order(res_3_v_2_res_Bdf_filtered$padj, na.last=NA), ]
+
+#SET ALPHA AT 0.05
+
+
+#SIGNIFICANT FAMILIES TABLE 
+#Absolute LFC = 1 and < 0.05 adj p-value 
+
+sigtable_3_v_2_B <- res_3_v_2_res_B[
+  !is.na(res_3_v_2_res_B$padj) &
+  !is.na(res_3_v_2_res_B$log2FoldChange) &
+  res_3_v_2_res_B$padj < alpha &
+  abs(res_3_v_2_res_B$log2FoldChange) > 1,
+]
+# Assuming your DESeq2 results are stored in an object called 'res'
+#JOIN FOR 
+sigtable_3_v_2_B_df <- cbind(as(sigtable_3_v_2_B, "data.frame"), as(tax_table(ps_family_B_prune_1_2_3)[rownames(sigtable_3_v_2_B), ], "matrix"))
+sigtable_3_v_2_B_df
+sigtable_3_v_1_B_df
+
+#ALL FAMILIES TABLE
+res_3_v_2_res_df_B <- cbind(as(res_3_v_2_res_Bdf, "data.frame"), as(tax_table(ps_family_B_prune_1_2_3)[rownames(res_3_v_2_res_Bdf), ], "matrix"))
+
+library(EnhancedVolcano)
+
+summary(res_3_v_2_res_df$padj)
+
+
+
+
+# Remove rows with NA padj values
+res_3_v_2_res_df_B <- res_3_v_2_res_df_B[!is.na(res_3_v_2_res_df_B$padj), ]
+
+# Ensure unique rownames (EnhancedVolcano uses rownames for matching)
+rownames(res_3_v_2_res_df_B) <- make.unique(res_3_v_2_res_df_B$Family)
+
+# 1. Define colors with simplified nested ifelse
+keyvals_3_v_2_B <- ifelse(
+  res_3_v_2_res_df_B$log2FoldChange > 1 & res_3_v_2_res_df_B$padj < 0.05, "#A29FDD",
+  ifelse(
+    res_3_v_2_res_df_B$log2FoldChange < -1 & res_3_v_2_res_df_B$padj < 0.05, "#008080",
+    'lightgrey'  # everything else is grey
+  )
+)
+
+# 2. Replace NAs with grey (not black, since that's our neutral color)
+keyvals_3_v_2_B[is.na(keyvals_3_v_2_B)] <- 'grey'
+
+# 3. Name your vector entries to correspond to legend labels
+names(keyvals_3_v_2_B) <- ifelse(
+  keyvals_3_v_2_B == "#A29FDD", 'Enriched in BCG-SC Neonates',
+  ifelse(keyvals_3_v_2_B == "#008080", 'Enriched in BCG-IV Neonates',
+    'Not significant'  # grey points
+  )
+)
+
+# 4. Set rownames (important)
+rownames(res_3_v_2_res_df_B) <- make.unique(as.character(res_3_v_2_res_df_B$Family))
+
+# 5. Plot with EnhancedVolcano
+volcano32_B <- EnhancedVolcano(
+  res_3_v_2_res_df_B,
+  lab = res_3_v_2_res_df_B$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+ pCutoff = 0.05,
+  FCcutoff = 1,
+  colCustom = keyvals_3_v_2_B,
+  legendLabels = c('Not significant', 'Enriched in BCG-SC Neonates', 'Enriched in Control Neonates'),
+  legendPosition = 'right',
+  legendLabSize = 15,
+  legendIconSize = 4,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 4.5,
+  labSize = 0,      # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = ''
+)
+
+volcano32_B
+EnhancedVolcano(
+  res_3_v_2_res_df_B,
+  lab = res_3_v_2_res_df_B$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  labSize = 3,
+  max.overlaps = Inf,
+  drawConnectors = TRUE,
+  widthConnectors = 0.5,
+  boxedLabels = TRUE
+)
+
+```
+```{r}
+experiment_A <- subset_samples(physeq_MS, Experiment == "A")
+
+ 
+#Running DESEQ2 at the family level #NOT USING rarefied PS object - EXPERIMENT A 
+
+
+
+ps_family_A <- tax_glom(experiment_A, taxrank = "Family", NArm = TRUE)
+
+ps_family_A_prune <- prune_taxa(taxa_sums(ps_family_A) > 0, ps_family_A)
+ps_family_A_prune_1_2_3 <- subset_samples(ps_family_A_prune, Group == "GP1" | Group == "GP2" |Group == "GP3" )
+ps_family_A_prune_1_2_3 <- prune_taxa(taxa_sums(ps_family_A_prune_1_2_3) > 0, ps_family_A_prune_1_2_3)
+
+#Here, Im going to subset for just GP1, 2, 3. Will give more power since Im losing some sampels by doing experiment-specific 
+
+
+#phyloseq_to_deseq2 basically gets us to the following line of code: so saves us the hassle of formatting, etc. 
+# DESeqDataSetFromMatrix(countData=raw_counts_lb_matrix, colData=sample_mapping_lb, design = ~ mouseID_n + Condition1)
+
+
+
+#Now we can save this as the dds with the following formula 
+
+dds_A = phyloseq_to_deseq2(ps_family_A_prune_1_2_3, ~ Group)
+sample_data(ps_family_A_prune_1_2_3)
+
+colData(dds_A) 
+#Can add poscounts #Note this will have some minor effects on the data 
+#dds <- estimateSizeFactors(dds, type = "poscounts")
+
+design(dds_A)
+dds_deseq_group_fam_A = DESeq(dds_A, test="Wald") #default DESEQ2 settings
+
+
+```
+
+```{r}
+
+#GP3 vs. GP1 in Experiment A
+resultsNames(dds_deseq_group_fam_A)
+
+res_3_v_1_res_A = results(dds_deseq_group_fam_A, contrast = c("Group", "GP3", "GP1"))
+
+#filter out taxa that have NAs (zeroes across all)
+res_3_v_1_res_Adf <- as.data.frame(res_3_v_1_res_A)
+
+res_3_v_1_res_Adf_filtered <- res_3_v_1_res_Adf %>% filter(!is.na(log2FoldChange))
+alpha = 0.05
+
+sigtab_A_test_31 = res_3_v_1_res_A[which(res_3_v_1_res_A$padj < alpha), ]
+
+
+#ORDER BY ADJUSTED P-VALUE
+res_3_v_1_res_A_order = res_3_v_1_res_Adf_filtered[order(res_3_v_1_res_Adf_filtered$padj, na.last=NA), ]
+
+#SET ALPHA AT 0.05
+
+
+#SIGNIFICANT FAMILIES TABLE 
+#Absolute LFC = 1 and < 0.05 adj p-value 
+
+sigtable_3_v_1_A <- res_3_v_1_res_A[
+  !is.na(res_3_v_1_res_A$padj) &
+  !is.na(res_3_v_1_res_A$log2FoldChange) &
+  res_3_v_1_res_A$padj < alpha &
+  abs(res_3_v_1_res_A$log2FoldChange) > 1,
+]
+# Assuming your DESeq2 results are stored in an object called 'res'
+#JOIN FOR 
+#sigtable_3_v_1_A_df <- cbind(as(sigtable_3_v_1_A, "data.frame"), as(tax_table(ps_family_A_prune_1_2_3)[rownames(sigtable_3_v_1_A), ], "matrix"))
+#commenting this out because nothing is significant
+
+#ALL FAMILIES TABLE
+res_3_v_1_res_df_A <- cbind(as(res_3_v_1_res_Adf, "data.frame"), as(tax_table(ps_family_A_prune_1_2_3)[rownames(res_3_v_1_res_Adf), ], "matrix"))
+
+library(EnhancedVolcano)
+
+
+
+
+
+# Remove rows with NA padj values
+res_3_v_1_res_df_A <- res_3_v_1_res_df_A[!is.na(res_3_v_1_res_df_A$padj), ]
+
+# Ensure unique rownames (EnhancedVolcano uses rownames for matching)
+rownames(res_3_v_1_res_df_A) <- make.unique(res_3_v_1_res_df_A$Family)
+
+# 1. Define colors with simplified nested ifelse
+keyvals_3_v_1_A <- ifelse(
+  res_3_v_1_res_df_A$log2FoldChange > 1 & res_3_v_1_res_df_A$padj < 0.05, "#A29FDD",
+  ifelse(
+    res_3_v_1_res_df_A$log2FoldChange < -1 & res_3_v_1_res_df_A$padj < 0.05, 'black',
+    'lightgrey'  # everything else is grey
+  )
+)
+
+# 2. Replace NAs with grey (not black, since that's our neutral color)
+keyvals_3_v_1_A[is.na(keyvals_3_v_1_A)] <- 'grey'
+
+# 3. Name your vector entries to correspond to legend labels
+names(keyvals_3_v_1_A) <- ifelse(
+  keyvals_3_v_1_A == "#A29FDD", 'Enriched in BCG-SC Neonates',
+  ifelse(keyvals_3_v_1_A == 'black', 'Enriched in Control',
+    'Not significant'  # grey points
+  )
+)
+
+# 4. Set rownames (important)
+rownames(res_3_v_1_res_df_A) <- make.unique(as.character(res_3_v_1_res_df_A$Family))
+
+# 5. Plot with EnhancedVolcano
+volcano31_A <- EnhancedVolcano(
+  res_3_v_1_res_df_A,
+  lab = res_3_v_1_res_df_A$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+ pCutoff = 0.05,
+  FCcutoff = 1,
+  colCustom = keyvals_3_v_1_A,
+  legendLabels = c('Not significant', 'Enriched in BCG-SC Neonates', 'Enriched in Control Neonates'),
+  legendPosition = 'right',
+  legendLabSize = 15,
+  legendIconSize = 4,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 4.5,
+  labSize = 0,      # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = ''
+)
+
+volcano31_A
+EnhancedVolcano(
+  res_3_v_1_res_df_A,
+  lab = res_3_v_1_res_df_A$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  labSize = 3,
+  max.overlaps = Inf,
+  drawConnectors = TRUE,
+  widthConnectors = 0.5,
+  boxedLabels = TRUE
+)
+```
+```{r}
+
+
+#GP3 vs. GP2 in Experiment A
+resultsNames(dds_deseq_group_fam_A)
+
+res_3_v_2_res_A = results(dds_deseq_group_fam_A, contrast = c("Group", "GP3", "GP2"))
+
+#filter out taxa that have NAs (zeroes across all)
+res_3_v_2_res_Adf <- as.data.frame(res_3_v_2_res_A)
+
+res_3_v_2_res_Adf_filtered <- res_3_v_2_res_Adf %>% filter(!is.na(log2FoldChange))
+alpha = 0.05
+
+sigtab_A_test_32 = res_3_v_2_res_A[which(res_3_v_2_res_A$padj < alpha), ]
+
+
+#ORDER BY ADJUSTED P-VALUE
+res_3_v_2_res_A_order = res_3_v_2_res_Adf_filtered[order(res_3_v_2_res_Adf_filtered$padj, na.last=NA), ]
+
+#SET ALPHA AT 0.05
+
+
+#SIGNIFICANT FAMILIES TABLE 
+#Absolute LFC = 1 and < 0.05 adj p-value 
+
+sigtable_3_v_2_A <- res_3_v_2_res_A[
+  !is.na(res_3_v_2_res_A$padj) &
+  !is.na(res_3_v_2_res_A$log2FoldChange) &
+  res_3_v_2_res_A$padj < alpha &
+  abs(res_3_v_2_res_A$log2FoldChange) > 1,
+]
+# Assuming your DESeq2 results are stored in an object called 'res'
+#JOIN FOR 
+sigtable_3_v_2_A_df <- cbind(as(sigtable_3_v_2_A, "data.frame"), as(tax_table(ps_family_A_prune_1_2_3)[rownames(sigtable_3_v_2_A), ], "matrix"))
+#commenting this out because nothing is significant
+
+#ALL FAMILIES TABLE
+res_3_v_2_res_df_A <- cbind(as(res_3_v_2_res_Adf, "data.frame"), as(tax_table(ps_family_A_prune_1_2_3)[rownames(res_3_v_2_res_Adf), ], "matrix"))
+
+library(EnhancedVolcano)
+
+
+
+
+
+# Remove rows with NA padj values
+res_3_v_2_res_df_A <- res_3_v_2_res_df_A[!is.na(res_3_v_2_res_df_A$padj), ]
+
+# Ensure unique rownames (EnhancedVolcano uses rownames for matching)
+rownames(res_3_v_2_res_df_A) <- make.unique(res_3_v_2_res_df_A$Family)
+
+# 1. Define colors with simplified nested ifelse
+keyvals_3_v_2_A <- ifelse(
+  res_3_v_2_res_df_A$log2FoldChange > 1 & res_3_v_2_res_df_A$padj < 0.05, "#A29FDD",
+  ifelse(
+    res_3_v_2_res_df_A$log2FoldChange < -1 & res_3_v_2_res_df_A$padj < 0.05, "#008080",
+    'lightgrey'  # everything else is grey
+  )
+)
+
+# 2. Replace NAs with grey (not black, since that's our neutral color)
+keyvals_3_v_2_A[is.na(keyvals_3_v_2_A)] <- 'grey'
+
+# 3. Name your vector entries to correspond to legend labels
+names(keyvals_3_v_2_A) <- ifelse(
+  keyvals_3_v_2_A == "#A29FDD", 'Enriched in BCG-SC Neonates',
+  ifelse(keyvals_3_v_2_A == "#008080", 'Enriched in BCG-IV Neonates',
+    'Not significant'  # grey points
+  )
+)
+
+# 4. Set rownames (important)
+rownames(res_3_v_2_res_df_A) <- make.unique(as.character(res_3_v_2_res_df_A$Family))
+
+# 5. Plot with EnhancedVolcano
+volcano32_A <- EnhancedVolcano(
+  res_3_v_2_res_df_A,
+  lab = res_3_v_2_res_df_A$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+ pCutoff = 0.05,
+  FCcutoff = 1,
+  colCustom = keyvals_3_v_2_A,
+  legendLabels = c('Not significant', 'Enriched in BCG-SC Neonates', 'Enriched in Control Neonates'),
+  legendPosition = 'right',
+  legendLabSize = 15,
+  legendIconSize = 4,
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = FALSE,
+  pointSize = 4.5,
+  labSize = 0,      # 👈 smaller font size for labels
+  colAlpha = 0.8,
+  title = '',
+  subtitle = '',
+  caption = ''
+)
+
+volcano32_A
+EnhancedVolcano(
+  res_3_v_2_res_df_A,
+  lab = res_3_v_2_res_df_A$Family,
+  x = 'log2FoldChange',
+  y = 'padj',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  labSize = 3,
+  max.overlaps = Inf,
+  drawConnectors = TRUE,
+  widthConnectors = 0.5,
+  boxedLabels = TRUE
+)
+```
+
